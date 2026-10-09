@@ -562,6 +562,59 @@ class Node(
         return res.msg.str("name") ?: name
     }
 
+    // -- browsing transfers ----------------------------------------------------------
+
+    /**
+     * Copies a file from a device's shared folders into the download folder, as a
+     * tracked (cancellable) transfer. Returns the file it was saved as.
+     */
+    fun downloadFile(peerId: String, path: String): File {
+        val s = session(peerId) ?: throw RemoteError("not_found", "device not connected")
+        val name = cleanName(path.substringAfterLast('/'))
+        val dir = platform.downloadsDir().apply { mkdirs() }
+        val res = s.channel.request(jobj("t" to "fs_read", "path" to path, "offset" to 0L, "length" to -1L))
+        val inc = res.incoming ?: throw IOException("no stream")
+        val t = startTransfer(name, res.msg.long("length") ?: res.msg.long("size"), true, s.name)
+        t.stream = inc
+        val tmp = File(dir, TMP_PREFIX + Crypto.hex(Crypto.randomBytes(6)))
+        val final: File
+        try {
+            FileOutputStream(tmp).use { out -> inc.copyTo(out) { t.add(it.size.toLong()) } }
+            if (t.cancelled) throw RemoteError("cancelled")
+            final = uniqueFile(dir, name)
+            Files.move(tmp.toPath(), final.toPath())
+        } catch (e: Exception) {
+            if (!inc.done) inc.abort()
+            finishTransfer(t, "failed")
+            if (t.cancelled) throw RemoteError("cancelled")
+            throw e
+        } finally {
+            tmp.delete()
+        }
+        finishTransfer(t, "done")
+        platform.onEvent(NodeEvent.FileReceived(s.peerId, final))
+        return final
+    }
+
+    /** Writes a file into a device's shared folders (replacing `path`), as a tracked transfer. */
+    fun uploadFile(peerId: String, path: String, size: Long?, open: () -> InputStream) {
+        val s = session(peerId) ?: throw RemoteError("not_found", "device not connected")
+        val t = startTransfer(path.substringAfterLast('/'), size, false, s.name)
+        try {
+            open().use { input ->
+                s.channel.request(
+                    jobj("t" to "fs_write", "path" to path),
+                    upload = ProgressInputStream(input, t), uploadLength = size ?: -1, timeoutMs = 300_000,
+                )
+            }
+        } catch (e: Exception) {
+            finishTransfer(t, "failed")
+            if (t.cancelled) throw RemoteError("cancelled")
+            throw e
+        }
+        finishTransfer(t, "done")
+    }
+
     private fun onSend(s: Session, msg: JsonObject, inc: Incoming) {
         val name = cleanName(msg.str("name"))
         val dir = platform.downloadsDir().apply { mkdirs() }

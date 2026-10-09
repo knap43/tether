@@ -4,7 +4,7 @@ Your Android phone and your Linux computer, joined on the home network:
 
 - **Clipboard sync** both ways (text).
 - **Quick send** — push files from either side; they land in `~/Downloads/Tether` or the phone's `Download/Tether`.
-- **Browse live** — the phone appears in GNOME Files; the computer appears in Android's Files app and every "open file" dialog.
+- **Browse live** — the phone appears in GNOME Files; the computer appears in Android's Files app, every "open file" dialog, and Tether's own **Browse** screen.
 - **Folder sync** — chosen folders kept identical on both devices, with deletions and conflicts handled.
 - **Remote commands** — run your computer's saved commands from the phone (or, if you allow it, any shell command) and see the output.
 - **Notifications** — `tether notify` pops a notification on the phone, handy at the end of long scripts.
@@ -68,10 +68,12 @@ If discovery is blocked (guest networks, "AP isolation"), pair by address: `teth
 |---|---|---|
 | Clipboard | Automatic | Computer → phone automatic; phone → computer via the app, the **Send clipboard** Quick Settings tile, the notification button, or **Send to computer** in the text-selection menu (or automatic — see below) |
 | Send files | Right-click → Scripts → Send to Phone; top-bar menu → Send files…; `tether send FILE…` | Share sheet → **Send to computer**; **Send files** in the app |
-| Browse | Files sidebar → **Phone (Tether)**, or `tether mount` — opens straight into the phone's storage | Files app → your computer's name |
+| Browse | Files sidebar → **Phone (Tether)**, or `tether mount` — opens straight into the phone's storage | **Browse** next to the computer in the app (open, download, upload, rename, delete), or Files app → your computer's name |
 | Sync a folder | `tether sync add camera ~/Pictures/Phone` | **Sync a folder** → pick the folder → name it `camera` |
 
 A sync folder must have the **same name** on both devices. Conflicting edits keep both versions: the older one is renamed `name.conflict-YYYYmmdd-HHMMSS.ext` and synced too. Shared folders for browsing are set with `tether share add NAME PATH` (default: your home folder) and **Share a folder** in the app (default: internal storage).
+
+In the app's **Browse** screen, tapping a file streams it straight into whichever app opens it; **⋮ → Download** saves a copy to `Download/Tether`, and the toolbar uploads files or makes a folder in the folder you're in. Downloads and uploads show progress with Cancel, like any other transfer.
 
 ### Commands from the phone
 

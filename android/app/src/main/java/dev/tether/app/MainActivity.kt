@@ -216,6 +216,9 @@ class MainActivity : AppCompatActivity() {
                             sendTarget = p.id
                             pickFiles.launch(arrayOf("*/*"))
                         },
+                        ui.chip("Browse", R.drawable.ic_folder) {
+                            startActivity(Intent(this, BrowseActivity::class.java).putExtra(BrowseActivity.EXTRA_PEER, p.id))
+                        },
                         ui.chip("Clipboard", R.drawable.ic_clipboard) { sendClipboardNow() },
                         ui.chip("Media", R.drawable.ic_music) {
                             startActivity(Intent(this, MediaActivity::class.java).putExtra(MediaActivity.EXTRA_PEER, p.id))
