@@ -6,6 +6,13 @@ Your Android phone and your Linux computer, joined on the home network:
 - **Quick send** — push files from either side; they land in `~/Downloads/Tether` or the phone's `Download/Tether`.
 - **Browse live** — the phone appears in GNOME Files; the computer appears in Android's Files app and every "open file" dialog.
 - **Folder sync** — chosen folders kept identical on both devices, with deletions and conflicts handled.
+- **Remote commands** — run your computer's saved commands from the phone (or, if you allow it, any shell command) and see the output.
+- **Notifications** — `tether notify` pops a notification on the phone, handy at the end of long scripts.
+- **Phone notifications on the desktop** — reply to messages from GNOME; dismissing on one side dismisses on the other.
+- **Media control** — play, pause, skip, seek and volume for whatever plays on the computer, from the phone.
+- **Battery** — the phone's charge in the top bar and the window, with a low-battery warning.
+- **Images on the clipboard** — copy a screenshot on one device, paste it on the other.
+- **Transfer progress** — progress bars with Cancel on both sides.
 
 Everything travels over an authenticated, encrypted channel of its own (see `PROTOCOL.md`). No cloud, no accounts, no Google services — it runs fine on LineageOS and GrapheneOS.
 
@@ -25,6 +32,8 @@ cd linux
 This installs the daemon to `~/.local/lib/tether` with a `tether` command in `~/.local/bin`, enables the `tether` systemd user service, installs the GNOME Shell extension (a phone icon in the top bar), adds **Scripts → Send to Phone** to the Files right-click menu, and bookmarks **Phone (Tether)** in the Files sidebar. It asks for `sudo` only to install `python-cryptography` and `python-aiohttp`, and to open ports 47290/udp and 47291/tcp if a firewall is active.
 
 On Wayland a newly installed extension takes effect after you log out and back in; then run `gnome-extensions enable tether@tether.local` if the installer couldn't.
+
+The installer also adds **Tether** to the app grid: a GTK window for everything below — pairing, sending files (or dropping them onto a device), shared and synced folders, phone commands, and settings. The top-bar menu opens it too, and `tether gui` from a terminal.
 
 ## 2. Build and install the phone app
 
@@ -63,6 +72,32 @@ If discovery is blocked (guest networks, "AP isolation"), pair by address: `teth
 
 A sync folder must have the **same name** on both devices. Conflicting edits keep both versions: the older one is renamed `name.conflict-YYYYmmdd-HHMMSS.ext` and synced too. Shared folders for browsing are set with `tether share add NAME PATH` (default: your home folder) and **Share a folder** in the app (default: internal storage).
 
+### Commands from the phone
+
+Save commands on the computer; they appear as buttons under **Commands** next to your computer in the app:
+
+```sh
+tether command add "Lock screen" 'loginctl lock-session'
+tether command add "Suspend" 'systemctl suspend'
+tether command list
+tether command remove "Suspend"
+```
+
+To also type arbitrary commands on the phone, run `tether set remote_shell on` (off by default). Commands run as you, via `/bin/sh -c` in your home folder, and are stopped after 120 s (`tether set command_timeout 300` to change). The phone shows exit status and up to 64 KiB of output. Each free-form command also raises a desktop notification, so nothing runs unnoticed. With the shell on, anyone holding your unlocked phone holds your account — keep a screen lock.
+
+### Phone notifications, media and battery
+
+- **Notifications:** in the phone app, tap **Allow notification access**. Notifications then appear on the desktop; those from messaging apps get a **Reply** button. Turn individual apps off under **Settings → Apps** in the Tether window.
+- **Media:** tap **Media** next to your computer in the app, or use the playback notification that appears while something plays. This uses `playerctl`, which the installer adds, and works with any player that supports MPRIS (Spotify, Firefox, mpv, Rhythmbox…). Volume uses PipeWire's `wpctl`.
+- **Battery:** shown next to the phone in the top-bar menu and the Tether window; a notification warns at 15%.
+
+### Notifications to the phone
+
+```sh
+tether notify "Backup finished" "312 files, no errors"
+make && tether notify "Build passed" || tether notify "Build failed"
+```
+
 Other commands: `tether status`, `tether clip "text"`, `tether unpair NAME`, `tether set clipboard off`.
 
 ### Automatic clipboard from the phone
@@ -80,7 +115,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 - Each device has a P-256 identity key (on the phone it lives in the Android Keystore). Sessions use an ephemeral ECDH handshake, signed by those keys, and AES-256-GCM.
 - Pairing is protected against interception by the six-digit code, which is derived from the handshake itself.
-- Unpaired devices can do nothing but ask to pair. Browsing is confined to the folders you share; `..` and symlinks leading outside are refused.
+- Unpaired devices can do nothing but ask to pair. A paired phone may run only the commands you saved, unless you turn on `remote_shell`. Browsing is confined to the folders you share; `..` and symlinks leading outside are refused.
 - The Files bridge on the computer listens only on 127.0.0.1, behind a random token in the URL.
 - Password managers that mark copies as secret are not synced from GNOME.
 
@@ -92,13 +127,17 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 ## Limits
 
-- The clipboard carries text only.
+- The clipboard carries text and images (up to 16 MB), not files.
 - Sync is between two devices at a time per folder, and very large folders (tens of thousands of files) send sizeable indexes.
 - Android's shared storage is case-insensitive; two files differing only in case on Linux will collide there.
 
 ## Development
 
 ```sh
-python3 linux/tests/test_e2e.py     # two Linux daemons: pairing, clipboard, send, browse, WebDAV, sync, reconnect
+python3 linux/tests/test_e2e.py     # two Linux daemons: pairing, clipboard, send, browse, WebDAV, sync, commands, reconnect
 tests/interop/run.sh                # the Android app's Kotlin core against the Linux daemon (needs kotlinc)
+linux/tests/dbus/run.sh            # real D-Bus: desktop notifications via gdbus, media via playerctl (fake services)
+python3 linux/tests/test_parsers.py # parsers for playerctl, wpctl and gdbus output
+dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 python3 linux/tests/gui_snapshot.py shots/
+                                    # drives the GTK window against real daemons and saves a PNG of each page
 ```
