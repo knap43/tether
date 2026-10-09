@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Tether
+Comment=Your phone's files, clipboard and commands on this computer
+Exec=@BIN@ gui
+Icon=dev.tether.Tether
+Terminal=false
+Categories=GTK;Utility;Network;
+Keywords=phone;android;clipboard;sync;transfer;
+StartupNotify=true
+StartupWMClass=dev.tether.Tether

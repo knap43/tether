@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget styles the code picks from (set in Theme.Tether). -->
+    <attr name="tetherFilledButton" format="reference" />
+    <attr name="tetherTonalButton" format="reference" />
+    <attr name="tetherOutlinedButton" format="reference" />
+    <attr name="tetherTextButton" format="reference" />
+    <attr name="tetherIconButton" format="reference" />
+    <attr name="tetherFilledIconButton" format="reference" />
+    <attr name="tetherTonalIconButton" format="reference" />
+    <attr name="tetherAssistChip" format="reference" />
+    <attr name="tetherCard" format="reference" />
+    <attr name="tetherOutlinedField" format="reference" />
+</resources>

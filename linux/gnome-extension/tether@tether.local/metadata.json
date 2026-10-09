@@ -1,0 +1,14 @@
+{
+  "uuid": "tether@tether.local",
+  "name": "Tether",
+  "description": "Clipboard sync and quick actions for the Tether phone bridge.",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "version": 1
+}

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Nautilus script: right-click files → Scripts → Send to Phone
+exec "$HOME/.local/bin/tether" send --notify "$@"
