@@ -223,6 +223,11 @@ class MediaActivity : AppCompatActivity() {
         state = st
         val p = st.active
         when {
+            st.disabled -> {
+                playerLabel.text = ""
+                titleLabel.text = "Media control is off"
+                artistLabel.text = "Turn it on in the Tether window on the computer"
+            }
             !st.available -> {
                 playerLabel.text = ""
                 titleLabel.text = "Media control isn't available"

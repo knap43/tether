@@ -91,7 +91,7 @@ To also type arbitrary commands on the phone, run `tether set remote_shell on` (
 ### Phone notifications, media and battery
 
 - **Notifications:** in the phone app, tap **Allow notification access**. Notifications then appear on the desktop; those from messaging apps get a **Reply** button. Turn individual apps off under **Settings → Apps** in the Tether window.
-- **Media:** tap **Media** next to your computer in the app, or use the playback notification that appears while something plays. This uses `playerctl`, which the installer adds, and works with any player that supports MPRIS (Spotify, Firefox, mpv, Rhythmbox…). Volume uses PipeWire's `wpctl`.
+- **Media:** tap **Media** next to your computer in the app, or use the playback notification that appears while something plays. This uses `playerctl`, which the installer adds, and works with any player that supports MPRIS (Spotify, Firefox, mpv, Rhythmbox…). Volume uses PipeWire's `wpctl`. To keep the phone out of it, turn off **Settings → Media** in the Tether window (or `tether set media off`).
 - **Battery:** shown next to the phone in the top-bar menu and the Tether window; a notification warns at 15%.
 
 ### Wake-on-LAN

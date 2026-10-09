@@ -70,6 +70,7 @@ DEFAULTS = {
     "command_timeout": 120,
     "notifications": True,
     "notif_muted": [],
+    "media": True,
 }
 
 

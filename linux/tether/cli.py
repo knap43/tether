@@ -57,6 +57,7 @@ def cmd_status(paths, args):
         return
     print(f"This device: {st['name']} [{st['id'][:8]}]")
     print(f"Clipboard:   {'on' if st['clipboard'] else 'off'} ({st['clipboard_backend']})")
+    print(f"Media:       {'on' if st.get('media', True) else 'off'} (the phone controls players here)")
     print(f"Downloads:   {st['download_dir']}")
     print("Paired devices:")
     for d in st["devices"] or []:
@@ -463,7 +464,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_wol)
 
     p = sub.add_parser("set", help="change a setting: name, clipboard, download_dir, scan_interval, "
-                                   "remote_shell, command_timeout")
+                                   "remote_shell, command_timeout, notifications, media")
     p.add_argument("key")
     p.add_argument("value")
     p.set_defaults(fn=cmd_set)

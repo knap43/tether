@@ -184,7 +184,7 @@ followed by the image (≤ 16 MiB). The receiver puts it on its clipboard.
 
 | request | fields | answer |
 |---|---|---|
-| `media_state` | — | `players`, `volume`, `available` |
+| `media_state` | — | `players`, `volume`, `available`, `disabled` (true while the user has media control off: no players, and `media_cmd` is refused with `denied`) |
 | `media_cmd` | `action`, `player` (optional), `value` | same as `media_state`, after the command |
 
 Actions: `play_pause`, `play`, `pause`, `next`, `previous`, `stop`,

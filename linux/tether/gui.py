@@ -321,6 +321,11 @@ class TetherWindow(Adw.ApplicationWindow):
             self.timeout_row.set_value(float(st.get("command_timeout", 120)))
             self.clip_row.set_active(bool(st["clipboard"]))
             self.notif_row.set_active(bool(st.get("notifications", True)))
+            self.media_row.set_active(bool(st.get("media", True)))
+            self.media_row.set_subtitle(
+                "Play, pause, skip, seek and volume, from the phone" if st.get("media_available", True)
+                else "Needs playerctl, which isn't installed"
+            )
             self.apps.update({"apps": st.get("notif_apps", []), "muted": st.get("notif_muted", [])}, self._app_rows)
             for t in st.get("transfers", []):
                 self.update_transfer(t)
@@ -864,6 +869,13 @@ class TetherWindow(Adw.ApplicationWindow):
         page.add(notifs)
         self.apps = ListGroup("Apps", "Turn off apps you don't want to see here.")
         page.add(self.apps.group)
+
+        media = Adw.PreferencesGroup(title="Media")
+        self.media_row = Adw.SwitchRow(title="Let the phone control media")
+        self.media_row.connect("notify::active", lambda r, _p: self._updating or self.call(
+            "set", key="media", value=r.get_active()))
+        media.add(self.media_row)
+        page.add(media)
 
         self.wol = ListGroup("Wake on LAN",
                              "Lets the phone switch this computer on. Also enable “Wake on LAN” in the BIOS/UEFI.")

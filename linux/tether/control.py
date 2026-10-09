@@ -129,9 +129,11 @@ class ControlServer:
         if cmd == "set":
             key, value = req["key"], req["value"]
             if key not in ("name", "clipboard", "download_dir", "scan_interval", "remote_shell", "command_timeout",
-                           "notifications"):
+                           "notifications", "media"):
                 raise ProtoError("bad_request", f"cannot set {key}")
             n.cfg[key] = value
+            if key == "media":
+                await n.media_setting_changed()
             return None
         if cmd == "share_add":
             shares = dict(n.cfg["shares"])

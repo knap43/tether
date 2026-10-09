@@ -287,9 +287,8 @@ class Node:
         s.channel.spawn(self._sync_worker(s))
         if s.type == "phone":
             await self._send_host_info(s)
-        if s.type == "phone" and self.media.available:
-            state = await self.media.state()
-            await s.channel.send({"t": "media_update", **state})
+        if s.type == "phone" and (self.media.available or not self.cfg["media"]):
+            await s.channel.send({"t": "media_update", **await self._media_state()})
         await self._send_indexes(s)
 
     def on_beacon(self, peer_id: str, host: str, port: int) -> None:
@@ -896,7 +895,22 @@ class Node:
 
     # -- media (the phone controls players here) ---------------------------------------
 
+    async def _media_state(self) -> dict:
+        """What phones are told: the players here, or nothing while media control is off."""
+        if not self.cfg["media"]:
+            return {"players": [], "volume": None, "available": self.media.available, "disabled": True}
+        return await self.media.state()
+
+    async def media_setting_changed(self) -> None:
+        """Tells connected phones at once, so their controls and playback notification follow."""
+        state = await self._media_state()
+        for s in self.connected():
+            if s.type == "phone":
+                s.channel.spawn(s.channel.send({"t": "media_update", **state}))
+
     def _on_media_change(self, state: dict) -> None:
+        if not self.cfg["media"]:
+            return
         for s in self.connected():
             if s.type == "phone":
                 s.channel.spawn(s.channel.send({"t": "media_update", **state}))
@@ -904,13 +918,15 @@ class Node:
     async def _media_poll(self) -> None:
         while True:
             await asyncio.sleep(5)
-            if self.media.available and any(s.type == "phone" for s in self.connected()):
+            if self.cfg["media"] and self.media.available and any(s.type == "phone" for s in self.connected()):
                 await self.media.refresh()
 
     async def _h_media_state(self, s, msg):
-        await s.channel.reply(msg, **await self.media.state())
+        await s.channel.reply(msg, **await self._media_state())
 
     async def _h_media_cmd(self, s, msg):
+        if not self.cfg["media"]:
+            raise ProtoError("denied", "media control is off")
         player = msg.get("player") if isinstance(msg.get("player"), str) else None
         try:
             state = await self.media.command(player, str(msg.get("action")), msg.get("value"))
@@ -970,6 +986,7 @@ class Node:
             "notif_muted": self.cfg["notif_muted"],
             "notif_apps": [{"app": a, "name": n} for a, n in sorted(self.notif_apps.items(), key=lambda x: x[1].lower())],
             "media_available": self.media.available,
+            "media": self.cfg["media"],
         }
 
 
