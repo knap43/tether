@@ -56,6 +56,9 @@ class BrowseActivity : AppCompatActivity() {
     private var rootPath = "/"
     private var path = "/"
     private var entries: List<RemoteFs.Entry> = emptyList()
+
+    /** Every name in the folder, hidden ones included, so uploads never overwrite them. */
+    private var names: Set<String> = emptySet()
     private var loadSeq = 0
     private var failed = false
 
@@ -196,7 +199,7 @@ class BrowseActivity : AppCompatActivity() {
 
     private fun show(target: String, listing: List<RemoteFs.Entry>) {
         val visible = listing
-            .filter { !it.name.startsWith(".tether") }
+            .filter { !it.name.startsWith(".") } // hidden files, and Tether's own temporaries
             .sortedWith(compareBy<RemoteFs.Entry>({ !it.dir }, { it.name.lowercase() }))
         // A computer sharing a single folder opens straight into it.
         if (target == "/" && rootPath == "/" && visible.size == 1 && visible[0].dir) {
@@ -207,6 +210,7 @@ class BrowseActivity : AppCompatActivity() {
         failed = false
         path = target
         entries = visible
+        names = listing.map { it.name }.toSet()
         adapter.notifyDataSetChanged()
         list.scrollToPosition(0)
 
@@ -297,7 +301,7 @@ class BrowseActivity : AppCompatActivity() {
     private fun upload(uris: List<Uri>) {
         val node = Hub.node ?: return
         val dir = path
-        val taken = entries.map { it.name }.toMutableSet()
+        val taken = names.toMutableSet()
         val noun = if (uris.size == 1) "file" else "files"
         snack("Uploading ${uris.size} $noun…")
         progress.visibility = View.VISIBLE
