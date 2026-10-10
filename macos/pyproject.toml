@@ -1,0 +1,16 @@
+[project]
+name = "tether"
+version = "1.0.0"
+description = "Android ⇄ macOS file and clipboard bridge"
+requires-python = ">=3.11"
+dependencies = ["cryptography>=41", "aiohttp>=3.9"]
+
+[project.scripts]
+tether = "tether.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tether"]

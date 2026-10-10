@@ -1,0 +1,4 @@
+__pycache__/
+app/.build/
+app/build/
+.swiftpm/

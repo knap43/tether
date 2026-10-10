@@ -1,6 +1,6 @@
 # Tether
 
-Your Android phone and your Linux computer, joined on the home network:
+Your Android phone and your Linux computer or Mac, joined on the home network:
 
 - **Clipboard sync** both ways (text).
 - **Quick send** — push files from either side; they land in `~/Downloads/Tether` or the phone's `Download/Tether`.
@@ -19,11 +19,14 @@ Everything travels over an authenticated, encrypted channel of its own (see `PRO
 
 ```
 linux/      Python daemon, CLI, GNOME Shell extension, installer
+macos/      the same daemon with macOS backends, a Swift menu-bar app, installer — see macos/README.md
 android/    Android app (Kotlin, no dependencies beyond kotlinx-serialization)
 tests/      Linux end-to-end test and a Kotlin ⇄ Python interop test
 ```
 
 ## 1. Install on the computer (Arch, GNOME)
+
+On a Mac, follow [macos/README.md](macos/README.md) instead, then continue at step 2.
 
 ```sh
 cd linux

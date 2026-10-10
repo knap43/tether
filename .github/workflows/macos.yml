@@ -1,0 +1,55 @@
+name: macOS
+
+on:
+  push:
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos.yml"
+  pull_request:
+    paths:
+      - "macos/**"
+      - ".github/workflows/macos.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Daemon tests
+        run: |
+          python -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
+          python tests/test_parsers.py
+          python tests/test_app_protocol.py
+          python tests/test_e2e.py
+
+      - name: Parse this Mac's network setup
+        run: python -c "from tether import wol; import json; print(json.dumps(wol.interfaces(), indent=1))"
+
+      - name: Build the app
+        run: app/build.sh "$RUNNER_TEMP/out"
+
+      - name: Check the bundle
+        run: |
+          app="$RUNNER_TEMP/out/Tether.app"
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --verify --verbose "$app"
+          file "$app/Contents/MacOS/Tether"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tether-app-${{ github.sha }}
+          path: ${{ runner.temp }}/out/Tether.app
+          if-no-files-found: error
