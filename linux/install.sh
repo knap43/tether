@@ -42,6 +42,15 @@ say "Installing GNOME Shell extension"
 rm -rf "$ext_dir"
 mkdir -p "$ext_dir"
 cp "$here/gnome-extension/$ext_uuid/"* "$ext_dir/"
+# Declare compatibility with the running GNOME Shell version.
+shell_ver=$(gnome-shell --version | grep -oE '[0-9]+' | head -1)
+python3 - "$ext_dir/metadata.json" "$shell_ver" <<'PY'
+import json, sys
+path, ver = sys.argv[1:]
+meta = json.load(open(path))
+meta["shell-version"] = sorted(set(meta["shell-version"] + [ver]), key=int)
+json.dump(meta, open(path, "w"), indent=2)
+PY
 gnome-extensions enable "$ext_uuid" 2>/dev/null ||
     say "Log out and back in, then run: gnome-extensions enable $ext_uuid"
 
