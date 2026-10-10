@@ -31,6 +31,14 @@ INDEX_PART = 5000
 MAX_OUTPUT = 64 * 1024
 
 
+async def exited(proc) -> int:
+    """Waits for the process itself to exit. Process.wait() also waits for its pipes to close
+    (Python 3.12), so a program left running in the background would hold the reply."""
+    while proc.returncode is None:
+        await asyncio.sleep(0.05)
+    return proc.returncode
+
+
 async def run_command(line: str, timeout: float) -> dict:
     """Runs a shell command line; returns exit status and combined output (capped)."""
     proc = await asyncio.create_subprocess_exec(
@@ -53,14 +61,14 @@ async def run_command(line: str, timeout: float) -> dict:
     reader = asyncio.ensure_future(pump())
     timed_out = False
     try:
-        await asyncio.wait_for(proc.wait(), timeout)
+        await asyncio.wait_for(exited(proc), timeout)
     except asyncio.TimeoutError:
         timed_out = True
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        await proc.wait()
+        await exited(proc)
     # Programs started in the background may keep the pipe open; don't wait for them.
     try:
         await asyncio.wait_for(asyncio.shield(reader), 1.0)
