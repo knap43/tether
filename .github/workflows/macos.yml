@@ -41,7 +41,9 @@ jobs:
           done
 
       - name: Parse this Mac's network setup
-        run: python -c "from tether import wol; import json; print(json.dumps(wol.interfaces(), indent=1))"
+        run: |
+          python -c "from tether import wol; import json; print(json.dumps(wol.interfaces()))" > "$RUNNER_TEMP/ifs.json"
+          echo "::notice title=interfaces::$(cat "$RUNNER_TEMP/ifs.json")"
 
       - name: Build the app
         run: |

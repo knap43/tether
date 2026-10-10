@@ -67,6 +67,16 @@ final class StatusMenu: NSObject, NSMenuDelegate, NSWindowDelegate, NSDraggingDe
         return i
     }
 
+    /// A title with a smaller grey line under it.
+    private func twoLine(_ title: String, _ subtitle: String) -> NSAttributedString {
+        let s = NSMutableAttributedString(string: title, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        s.append(NSAttributedString(string: "\n" + subtitle, attributes: [
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]))
+        return s
+    }
+
     private func disabled(_ title: String) -> NSMenuItem {
         let i = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         i.isEnabled = false
@@ -110,11 +120,7 @@ final class StatusMenu: NSObject, NSMenuDelegate, NSWindowDelegate, NSDraggingDe
         for d in st.devices {
             let i = NSMenuItem(title: d.name, action: nil, keyEquivalent: "")
             i.image = NSImage(systemSymbolName: d.symbol, accessibilityDescription: nil)
-            if #available(macOS 14.4, *) {
-                i.subtitle = d.subtitle
-            } else {
-                i.title = "\(d.name) — \(d.subtitle)"
-            }
+            i.attributedTitle = twoLine(d.name, d.subtitle)
             let sub = NSMenu()
             if d.connected {
                 sub.addItem(ActionItem("Send Files…", symbol: "paperplane") { c.pickAndSend(to: d.id) })
