@@ -89,7 +89,7 @@ tether command list
 tether command remove "Suspend"
 ```
 
-To also type arbitrary commands on the phone, run `tether set remote_shell on` (off by default). Commands run as you, via `/bin/sh -c` in your home folder, and are stopped after 120 s (`tether set command_timeout 300` to change). The phone shows exit status and up to 64 KiB of output. Each free-form command also raises a desktop notification, so nothing runs unnoticed. With the shell on, anyone holding your unlocked phone holds your account — keep a screen lock.
+To also type arbitrary commands on the phone, run `tether set remote_shell on` (off by default). Commands run as you, via your login shell (`$shell -l -c`, so fish/zsh/bash config applies) in your home folder, and are stopped after 120 s (`tether set command_timeout 300` to change). The phone shows exit status and up to 64 KiB of output. Each free-form command also raises a desktop notification, so nothing runs unnoticed. With the shell on, anyone holding your unlocked phone holds your account — keep a screen lock.
 
 ### Phone notifications, media and battery
 

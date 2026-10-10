@@ -148,7 +148,7 @@ Paths are confined to the share's real path; `..` is refused.
 | `cmd_list` | — | `commands` (`[{"id", "name"}]`), `shell` (bool: free-form allowed) |
 | `cmd_run` | `id` of a saved command, **or** `shell` (a command line) | `exit`, `output` (stdout+stderr, ≤ 64 KiB), `truncated`, `timed_out` |
 
-The desktop runs the line with `/bin/sh -c` in the user's home, in its own
+The desktop runs the line with the user's login shell (`<shell> -l -c`) in the user's home, in its own
 process group, and kills the group after its time limit. `shell` is refused
 with `denied` unless the user enabled it on the desktop. The answer comes
 when the process exits; background children are not waited for.

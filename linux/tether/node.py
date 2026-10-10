@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import pwd
 import re
 import shutil
 import signal
@@ -33,10 +34,23 @@ INDEX_PART = 5000
 MAX_OUTPUT = 64 * 1024
 
 
+def user_shell() -> str:
+    """The user's login shell (from the account, not $SHELL, which a service may not set)."""
+    try:
+        sh = pwd.getpwuid(os.getuid()).pw_shell
+    except KeyError:
+        sh = ""
+    return sh if sh and os.access(sh, os.X_OK) else "/bin/sh"
+
+
 async def run_command(line: str, timeout: float) -> dict:
-    """Runs a shell command line; returns exit status and combined output (capped)."""
+    """Runs a command line in the user's login shell; returns exit status and combined output (capped)."""
+    shell = user_shell()
+    # A login shell reads the user's startup files (config.fish, .zprofile, .bash_profile),
+    # so their PATH, functions and environment apply. /bin/sh stays as plain `sh -c`.
+    args = [shell, "-c", line] if os.path.basename(shell) == "sh" else [shell, "-l", "-c", line]
     proc = await asyncio.create_subprocess_exec(
-        "/bin/sh", "-c", line,
+        *args,
         stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         cwd=os.path.expanduser("~"), start_new_session=True,
     )

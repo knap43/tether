@@ -724,7 +724,7 @@ class TetherWindow(Adw.ApplicationWindow):
     def _commands_page(self) -> Adw.PreferencesPage:
         page = Adw.PreferencesPage()
         self.saved_cmds = ListGroup("Saved Commands",
-                                    "Buttons your phone can press. They run as you, through /bin/sh, "
+                                    "Buttons your phone can press. They run as you, in your login shell, "
                                     "in your home folder.")
         page.add(self.saved_cmds.group)
 

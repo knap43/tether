@@ -344,7 +344,7 @@ private struct CommandsTab: View {
             } header: {
                 Text("Saved Commands")
             } footer: {
-                Text("Buttons your phone can press. They run as you, through /bin/sh, in your home folder.")
+                Text("Buttons your phone can press. They run as you, in your login shell, in your home folder.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Add a Command") {
