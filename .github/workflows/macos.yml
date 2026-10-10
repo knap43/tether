@@ -31,15 +31,30 @@ jobs:
       - name: Daemon tests
         run: |
           python -m pip install --quiet "cryptography>=41" "aiohttp>=3.9"
-          python tests/test_parsers.py
-          python tests/test_app_protocol.py
-          python tests/test_e2e.py
+          for t in test_parsers test_app_protocol test_e2e; do
+            if ! python "tests/$t.py" > "$RUNNER_TEMP/$t.log" 2>&1; then
+              # Also as an annotation, which shows on the run page without opening the log.
+              echo "::error title=$t failed::$(tail -40 "$RUNNER_TEMP/$t.log" | python -c 'import sys; print(sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))')"
+              exit 1
+            fi
+            tail -20 "$RUNNER_TEMP/$t.log"
+          done
 
       - name: Parse this Mac's network setup
         run: python -c "from tether import wol; import json; print(json.dumps(wol.interfaces(), indent=1))"
 
       - name: Build the app
-        run: app/build.sh "$RUNNER_TEMP/out"
+        run: |
+          if ! app/build.sh "$RUNNER_TEMP/out" > "$RUNNER_TEMP/build.log" 2>&1; then
+            grep -E "error:|warning:" "$RUNNER_TEMP/build.log" | sort -u | head -40 | while IFS= read -r line; do
+              echo "::error title=swift build::$line"
+            done
+            tail -30 "$RUNNER_TEMP/build.log"
+            exit 1
+          fi
+          grep -E "warning:" "$RUNNER_TEMP/build.log" | sort -u | head -30 | while IFS= read -r line; do
+            echo "::warning title=swift build::$line"
+          done || true
 
       - name: Check the bundle
         run: |
