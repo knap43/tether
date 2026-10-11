@@ -40,10 +40,16 @@ def human(n) -> str:
 def device_subtitle(d: dict) -> str:
     if not d["connected"]:
         return "Not connected"
+    parts = ["Connected"]
     b = d.get("battery")
-    if not b:
-        return "Connected"
-    return f"Connected · Battery {b['level']}%{' · charging' if b['charging'] else ''}"
+    if b:
+        parts.append(f"Battery {b['level']}%{' · charging' if b['charging'] else ''}")
+    audio = d.get("audio")
+    if audio == "on":
+        parts.append("Playing its audio here")
+    elif audio == "starting":
+        parts.append("Waiting for the phone to share audio…")
+    return " · ".join(parts)
 
 
 def short_code(sas: str) -> str:
@@ -309,7 +315,8 @@ class TetherWindow(Adw.ApplicationWindow):
         self.status = st
         self._updating = True
         try:
-            self.paired.update(st["devices"], self._device_rows)
+            audio_ok = bool(st.get("phone_audio", True) and st.get("phone_audio_available", True))
+            self.paired.update([{**d, "audio_ok": audio_ok} for d in st["devices"]], self._device_rows)
             self.pending.update(st["pending"], self._pending_rows)
             self.pending.group.set_visible(bool(st["pending"]))
             self.nearby.update(st["discovered"], self._nearby_rows)
@@ -322,6 +329,11 @@ class TetherWindow(Adw.ApplicationWindow):
             self.clip_row.set_active(bool(st["clipboard"]))
             self.notif_row.set_active(bool(st.get("notifications", True)))
             self.media_row.set_active(bool(st.get("media", True)))
+            self.audio_row.set_active(bool(st.get("phone_audio", True)))
+            self.audio_row.set_subtitle(
+                "Start it from the phone, or with the speaker button by the phone" if st.get("phone_audio_available", True)
+                else "Needs pacat (from libpulse), which isn't installed"
+            )
             self.media_row.set_subtitle(
                 "Play, pause, skip, seek and volume, from the phone" if st.get("media_available", True)
                 else "Needs playerctl, which isn't installed"
@@ -371,6 +383,8 @@ class TetherWindow(Adw.ApplicationWindow):
             if online:
                 row.add_suffix(icon_button("document-send-symbolic", "Send Files…", action="win.send-files", target=d["id"]))
                 row.add_suffix(icon_button("folder-remote-symbolic", "Browse Files", action="win.browse", target=d["id"]))
+                if d.get("type") == "phone" and d.get("audio_ok"):
+                    row.add_suffix(self._audio_toggle(d))
                 menu.append("Send Clipboard", f"win.send-clip::{d['id']}")
                 menu.append("Send Notification…", f"win.notify::{d['id']}")
                 self._accept_drops(row, d["id"])
@@ -381,6 +395,14 @@ class TetherWindow(Adw.ApplicationWindow):
             row.add_suffix(more)
             rows.append(row)
         return rows
+
+    def _audio_toggle(self, d: dict) -> Gtk.ToggleButton:
+        on = d.get("audio") in ("on", "starting")
+        b = Gtk.ToggleButton(icon_name="audio-speakers-symbolic", active=on, valign=Gtk.Align.CENTER,
+                             tooltip_text="Stop Phone Audio" if on else "Play Phone Audio Here")
+        b.add_css_class("flat")
+        b.connect("toggled", lambda btn: self.call("phone_audio", device=d["id"], on=btn.get_active()))
+        return b
 
     def _accept_drops(self, row: Gtk.Widget, device_id: str):
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
@@ -875,6 +897,10 @@ class TetherWindow(Adw.ApplicationWindow):
         self.media_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="media", value=r.get_active()))
         media.add(self.media_row)
+        self.audio_row = Adw.SwitchRow(title="Play phone audio here")
+        self.audio_row.connect("notify::active", lambda r, _p: self._updating or self.call(
+            "set", key="phone_audio", value=r.get_active()))
+        media.add(self.audio_row)
         page.add(media)
 
         self.wol = ListGroup("Wake on LAN",

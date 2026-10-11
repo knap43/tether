@@ -11,10 +11,11 @@ import pwd
 import re
 import shutil
 import signal
+import time
 from pathlib import Path
 
 from . import clipboard
-from .channel import CHUNK, Channel
+from .channel import CHUNK, Channel, StreamAborted
 from .config import Config, Paths, PeerStore
 from .crypto import HandshakeError, Identity, b64e, handshake
 from .desknotify import REASON_DISMISSED, DesktopNotifier
@@ -22,6 +23,7 @@ from .discovery import Discovery
 from .errors import ProtoError, from_oserror
 from .fsops import TMP_PREFIX, Shares
 from .media import Media
+from . import phoneaudio
 from .transfers import Transfer, Transfers
 from .sync import BaseState, FolderIndex, now_ms, plan, remove_empty_parents, safe_rel, tmp_path_for
 
@@ -32,6 +34,7 @@ RECONNECT_INTERVAL = 30
 MAX_UNTRUSTED = 4
 INDEX_PART = 5000
 MAX_OUTPUT = 64 * 1024
+AUDIO_ASK_TIMEOUT = 90  # how long the phone has to accept a request to stream its audio
 
 
 def user_shell() -> str:
@@ -161,6 +164,8 @@ class Session:
         self.index_lock = asyncio.Lock()
         self.battery: dict | None = None
         self.notifs: dict[str, int] = {}  # phone notification key -> desktop notification id
+        self.audio = "off"  # phone audio playing here: off | starting | on
+        self.audio_asked = 0.0
 
     def info(self) -> dict:
         return {"id": self.peer_id, "name": self.name, "type": self.type, "addr": self.addr[0] if self.addr else None}
@@ -189,6 +194,8 @@ class Node:
         self.notif_map: dict[int, dict] = {}  # desktop id -> {peer, key, title, app, acted}
         self.notif_apps: dict[str, str] = {}  # package -> label, seen this run
         self.low_battery: set[str] = set()
+        self.audio_in = None  # (session, Incoming) of the phone audio stream playing here
+        self.audio_sink = phoneaudio.PacatSink
         self.tasks: set[asyncio.Task] = set()
         self.load_sync_folders()
 
@@ -948,6 +955,72 @@ class Node:
             raise ProtoError("unsupported", str(e)) from None
         await s.channel.reply(msg, **state)
 
+    # -- phone audio (the phone streams its sound to us) -----------------------------
+
+    def _audio_state(self, s: Session) -> str:
+        if s.audio == "starting" and time.monotonic() - s.audio_asked > AUDIO_ASK_TIMEOUT:
+            s.audio = "off"
+        return s.audio
+
+    async def set_phone_audio(self, peer_id: str, on: bool) -> None:
+        """Asks the phone to start or stop streaming its audio here."""
+        s = self.sessions.get(peer_id)
+        if not s or s.channel.closed.is_set():
+            raise ProtoError("not_found", "the phone isn't connected")
+        if on and not self.cfg["phone_audio"]:
+            raise ProtoError("denied", "playing phone audio is turned off in Settings")
+        if on and not phoneaudio.available():
+            raise ProtoError("unsupported", "needs pacat (from libpulse)")
+        if not on and self.audio_in and self.audio_in[0] is s:
+            self.audio_in[1].abort()
+        await s.channel.send({"t": "audio_ctl", "on": on})
+        if on and s.audio == "off":
+            s.audio, s.audio_asked = "starting", time.monotonic()
+        elif not on:
+            s.audio = "off"
+        self.emit_status()
+
+    async def phone_audio_setting_changed(self) -> None:
+        if not self.cfg["phone_audio"] and self.audio_in:
+            s = self.audio_in[0]
+            self.audio_in[1].abort()
+            await s.channel.send({"t": "audio_ctl", "on": False})
+
+    async def _h_audio(self, s, msg):
+        inc = msg["_in"]
+        if not self.cfg["phone_audio"]:
+            raise ProtoError("denied", "playing phone audio is turned off")
+        rate, channels = msg.get("rate"), msg.get("channels")
+        if (msg.get("format") != "s16le" or not isinstance(rate, int) or not 8000 <= rate <= 192000
+                or channels not in (1, 2)):
+            raise ProtoError("bad_request")
+        sink = self.audio_sink(rate, channels, f"Audio from {s.name}")
+        if self.audio_in:  # one phone at a time; the newest wins
+            old, old_in = self.audio_in
+            old_in.abort()
+            old.audio = "off"
+        self.audio_in = (s, inc)
+        try:
+            await s.channel.reply(msg)
+            s.audio = "on"
+            self.emit_status()
+            async for chunk in inc.chunks():
+                sink.write(chunk)
+        except StreamAborted:
+            pass
+        finally:
+            await sink.close()
+            if self.audio_in and self.audio_in[1] is inc:
+                self.audio_in = None
+                s.audio = "off"
+                self.emit_status()
+
+    async def _h_audio_state(self, s, msg):
+        """The phone reports it stopped (or never started, e.g. the user declined)."""
+        if not msg.get("on") and s.audio == "starting":
+            s.audio = "off"
+            self.emit_status()
+
     # -- events / notifications -------------------------------------------------
 
     def emit(self, ev: dict) -> None:
@@ -969,7 +1042,8 @@ class Node:
             s = self.sessions.get(pid)
             devices.append({"id": pid, "name": p["name"], "type": p.get("type"), "paired": True,
                             "connected": self.is_connected(pid),
-                            "battery": s.battery if s and self.is_connected(pid) else None})
+                            "battery": s.battery if s and self.is_connected(pid) else None,
+                            "audio": self._audio_state(s) if s and self.is_connected(pid) else "off"})
         pending = [
             {"id": s.peer_id, "name": s.name, "sas": s.hs.sas, "initiator": s.pair["initiator"],
              "confirmed": bool(s.pair["local"])}
@@ -1001,6 +1075,8 @@ class Node:
             "notif_apps": [{"app": a, "name": n} for a, n in sorted(self.notif_apps.items(), key=lambda x: x[1].lower())],
             "media_available": self.media.available,
             "media": self.cfg["media"],
+            "phone_audio": self.cfg["phone_audio"],
+            "phone_audio_available": phoneaudio.available(),
         }
 
 

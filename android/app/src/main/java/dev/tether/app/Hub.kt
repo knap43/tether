@@ -68,7 +68,9 @@ object Notifications {
     const val CH_REMOTE = "remote"
     const val CH_MEDIA = "media"
     const val CH_TRANSFERS = "transfers"
+    const val CH_AUDIO = "audio"
     const val ID_SERVICE = 1
+    const val ID_AUDIO = 2
     private var nextId = 100
     private const val PREFS = "notifications"
     private const val KEY_SHOW_STATUS = "show_status"
@@ -108,6 +110,11 @@ object Notifications {
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_TRANSFERS, "Transfers", NotificationManager.IMPORTANCE_LOW).apply {
+                setShowBadge(false)
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_AUDIO, "Audio streaming to your computer", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
             },
         )
@@ -202,6 +209,7 @@ class AndroidPlatform(private val context: Context) : Platform {
                 MediaNotifier.update(context, event.from, event.fromName, event.state)
             }
             is NodeEvent.TransferProgress -> TransferNotifier.update(context, event.info)
+            is NodeEvent.AudioControl -> PhoneAudio.onControl(context, event)
             is NodeEvent.Unpaired -> Notifications.post(context, "Unpaired", "${event.name} no longer trusts this phone")
             else -> {}
         }

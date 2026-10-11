@@ -140,13 +140,20 @@ class Channel(
         framer.send(buf)
     }
 
-    /** Sends `length` bytes (or everything until EOF if negative). False if the receiver cancelled. */
-    fun sendStream(sid: Int, input: InputStream, length: Long): Boolean {
+    /**
+     * Sends `length` bytes (or everything until EOF if negative). False if the receiver cancelled,
+     * or [stopIf] became true (checked before each chunk).
+     */
+    fun sendStream(sid: Int, input: InputStream, length: Long, stopIf: (() -> Boolean)? = null): Boolean {
         val buf = ByteArray(CHUNK)
         var left = length
         try {
             while (length < 0 || left > 0) {
                 if (cancelled.remove(sid)) return false
+                if (stopIf?.invoke() == true) {
+                    trySend(jobj("t" to "abort", "stream" to sid))
+                    return false
+                }
                 val want = if (length < 0) CHUNK else minOf(CHUNK.toLong(), left).toInt()
                 val n = input.read(buf, 0, want)
                 if (n < 0) {
@@ -178,7 +185,10 @@ class Channel(
             if (upload != null) {
                 val sid = newStream()
                 send(msg.with("req" to req, "stream" to sid))
-                if (!sendStream(sid, upload, uploadLength)) {
+                // A peer that refuses the request without cancelling the stream (one that doesn't
+                // know the message) would otherwise keep receiving an endless upload.
+                val refused = { fut.getNow(null)?.msg?.bool("ok") == false }
+                if (!sendStream(sid, upload, uploadLength, refused)) {
                     val early = fut.getNow(null)
                     throw RemoteError(early?.msg?.str("error") ?: "cancelled")
                 }

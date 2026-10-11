@@ -20,6 +20,10 @@ command -v playerctl >/dev/null || {
     say "Installing playerctl (media control from the phone)"
     sudo pacman -S --needed playerctl
 }
+command -v pacat >/dev/null || {
+    say "Installing pacat (plays the phone's audio)"
+    sudo pacman -S --needed libpulse
+}
 
 say "Installing daemon to $lib"
 rm -rf "$lib"

@@ -10,6 +10,7 @@ Your Android phone and your Linux computer or Mac, joined on the home network:
 - **Notifications** — `tether notify` pops a notification on the phone, handy at the end of long scripts.
 - **Phone notifications on the desktop** — reply to messages from GNOME; dismissing on one side dismisses on the other.
 - **Media control** — play, pause, skip, seek and volume for whatever plays on the computer, from the phone.
+- **Phone audio on the computer** — what the phone plays comes out of the computer's speakers (Linux).
 - **Battery** — the phone's charge in the top bar and the window, with a low-battery warning.
 - **Images on the clipboard** — copy a screenshot on one device, paste it on the other.
 - **Transfer progress** — progress bars with Cancel on both sides.
@@ -91,10 +92,11 @@ tether command remove "Suspend"
 
 To also type arbitrary commands on the phone, run `tether set remote_shell on` (off by default). Commands run as you, via your login shell (`$shell -l -c`, so fish/zsh/bash config applies) in your home folder, and are stopped after 120 s (`tether set command_timeout 300` to change). The phone shows exit status and up to 64 KiB of output. Each free-form command also raises a desktop notification, so nothing runs unnoticed. With the shell on, anyone holding your unlocked phone holds your account — keep a screen lock.
 
-### Phone notifications, media and battery
+### Phone notifications, media, audio and battery
 
 - **Notifications:** in the phone app, tap **Allow notification access**. Notifications then appear on the desktop; those from messaging apps get a **Reply** button. Turn individual apps off under **Settings → Apps** in the Tether window.
 - **Media:** tap **Media** next to your computer in the app, or use the playback notification that appears while something plays. This uses `playerctl`, which the installer adds, and works with any player that supports MPRIS (Spotify, Firefox, mpv, Rhythmbox…). Volume uses PipeWire's `wpctl`. To keep the phone out of it, turn off **Settings → Media** in the Tether window (or `tether set media off`).
+- **Phone audio:** tap **Phone audio** next to your computer in the app, or the speaker button by the phone in the Tether window (or `tether audio on`). Android asks each time before it lets an app capture what it plays; accept, and the phone's sound plays on the computer through PipeWire (`pacat`) as uncompressed 48 kHz stereo, about 1.5 Mbit/s. The phone goes quiet meanwhile unless you turn off **Audio → Silence this phone while streaming**. Stop it from the notification, the app, or the window. Apps that forbid capture (some streaming apps, calls) aren't heard. To refuse it, turn off **Settings → Play phone audio here** (or `tether set phone_audio off`).
 - **Battery:** shown next to the phone in the top-bar menu and the Tether window; a notification warns at 15%.
 
 ### Wake-on-LAN
@@ -148,6 +150,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 - The clipboard carries text and images (up to 16 MB), not files.
 - Sync is between two devices at a time per folder, and very large folders (tens of thousands of files) send sizeable indexes.
+- Phone audio is Linux only for now, and plays one phone at a time; latency is roughly a tenth of a second, so video on the phone may look slightly ahead of its sound.
 - Android's shared storage is case-insensitive; two files differing only in case on Linux will collide there.
 
 ## Development

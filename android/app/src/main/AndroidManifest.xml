@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Streaming the phone's audio to the computer (playback capture). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -129,6 +133,18 @@
             android:name=".app.TetherService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <activity
+            android:name=".app.AudioCaptureActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Tether.Invisible" />
+
+        <service
+            android:name=".app.AudioStreamService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
 
         <service
             android:name=".app.ClipTileService"

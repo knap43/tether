@@ -129,11 +129,13 @@ class ControlServer:
         if cmd == "set":
             key, value = req["key"], req["value"]
             if key not in ("name", "clipboard", "download_dir", "scan_interval", "remote_shell", "command_timeout",
-                           "notifications", "media"):
+                           "notifications", "media", "phone_audio"):
                 raise ProtoError("bad_request", f"cannot set {key}")
             n.cfg[key] = value
             if key == "media":
                 await n.media_setting_changed()
+            if key == "phone_audio":
+                await n.phone_audio_setting_changed()
             return None
         if cmd == "share_add":
             shares = dict(n.cfg["shares"])
@@ -201,6 +203,9 @@ class ControlServer:
         if cmd == "transfer_cancel":
             if not n.transfers.cancel(int(req["id"])):
                 raise ProtoError("not_found", "no such transfer")
+            return None
+        if cmd == "phone_audio":
+            await n.set_phone_audio(n_resolve(n, req.get("device"), connected=True), bool(req.get("on")))
             return None
         if cmd == "media_state":
             return await n.media.state()

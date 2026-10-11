@@ -16,7 +16,7 @@ PING_INTERVAL = 30
 IDLE_TIMEOUT = 90
 
 # Messages whose "stream" field announces data flowing *to* us.
-_INBOUND_STREAM_TYPES = {"send", "fs_write", "res", "clip_image"}
+_INBOUND_STREAM_TYPES = {"send", "fs_write", "res", "clip_image", "audio"}
 
 _ABORTED = object()
 _CLOSED = object()
@@ -68,6 +68,8 @@ class Incoming:
         # Unblock the receive loop if it is waiting to enqueue into this stream.
         while not self.queue.empty():
             self.queue.get_nowait()
+        # Wake a reader in another task, which then sees the end of the stream.
+        self.queue.put_nowait(b"")
 
     async def drain(self) -> None:
         try:
@@ -246,12 +248,13 @@ class Channel:
             await self._fail(msg, "io")
 
     async def _fail(self, msg: dict, code: str) -> None:
-        if "_in" in msg:
-            msg["_in"].abort()
+        # The error goes out before the cancel, so an uploader learns why its stream stopped.
         try:
             await self.reply_error(msg, code)
         except ConnectionError:
             pass
+        if "_in" in msg:
+            msg["_in"].abort()
 
     async def _on_chunk(self, sid: int, data: bytes) -> None:
         if sid in self.discard:

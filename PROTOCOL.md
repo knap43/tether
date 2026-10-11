@@ -194,6 +194,22 @@ Actions: `play_pause`, `play`, `pause`, `next`, `previous`, `stop`,
 player is the most relevant one (playing before paused). The desktop pushes
 `{"t": "media_update", ...same fields}` to phones when something changes.
 
+### Phone audio (phone → desktop)
+
+The phone streams what it plays as raw PCM:
+
+`{"t": "audio", "req": n, "stream": s, "rate": 48000, "channels": 2, "format": "s16le"}`
+is answered at once (`ok`, or `denied` while the desktop has phone audio off,
+`unsupported`, `bad_request`), and the stream then carries 16-bit little-endian
+interleaved samples, ideally in 20 ms chunks, until the phone ends it. The
+desktop stops it with `cancel`; one stream plays at a time, the newest wins.
+A receiver plays with bounded latency, dropping audio rather than queueing it.
+
+`{"t": "audio_ctl", "on": bool}` (desktop → phone) asks the phone to start or
+stop streaming to it; starting needs the user's consent on the phone.
+`{"t": "audio_state", "on": false}` (phone → desktop) reports that the phone
+stopped, or won't start (consent declined).
+
 ### Wake-on-LAN (desktop → phone)
 
 `{"t": "host_info", "wol": [{"mac", "broadcast", "ip", "ifname", "wired"}]}` is
