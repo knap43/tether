@@ -109,6 +109,10 @@ class Node(
     private val sessions = ConcurrentHashMap<String, Session>()
     private val untrusted: MutableSet<Session> = ConcurrentHashMap.newKeySet()
     private val connecting: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val lastClose = ConcurrentHashMap<String, String>()
+
+    /** Why the last connection with this peer ended, if it did. */
+    fun lastCloseReason(peerId: String): String? = lastClose[peerId]
 
     @Volatile
     var shares = Shares(settings.shares)
@@ -171,7 +175,7 @@ class Node(
         running = false
         runCatching { server?.close() }
         discovery.stop()
-        (sessions.values + untrusted).forEach { it.channel.close() }
+        (sessions.values + untrusted).forEach { it.channel.close("Tether stopped") }
         scheduler.shutdownNow()
         pool.shutdownNow()
     }
@@ -259,7 +263,7 @@ class Node(
         if (old != null && old !== s && !old.channel.closed) {
             val smaller = minOf(identity.id, s.peerId)
             if (!(s.clientId == smaller || old.clientId != smaller)) return false
-            old.channel.close()
+            old.channel.close("replaced by a new connection")
         }
         sessions[s.peerId] = s
         return true
@@ -270,6 +274,7 @@ class Node(
             s.channel.run()
         } finally {
             untrusted.remove(s)
+            s.channel.closeReason?.let { lastClose[s.peerId] = it }
             if (sessions.remove(s.peerId, s)) platform.onEvent(NodeEvent.StatusChanged)
         }
     }

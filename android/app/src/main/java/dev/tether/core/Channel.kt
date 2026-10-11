@@ -106,6 +106,11 @@ class Channel(
     var closed = false
         private set
 
+    /** Why the connection ended, once it has (for error messages). */
+    @Volatile
+    var closeReason: String? = null
+        private set
+
     fun onClose(fn: () -> Unit) {
         closeListeners.add(fn)
         if (closed) fn()
@@ -260,7 +265,8 @@ class Channel(
                 }
             }
         } catch (e: Exception) {
-            log("$label: closed (${e.message ?: e.javaClass.simpleName})")
+            if (closeReason == null) closeReason = e.message ?: e.javaClass.simpleName
+            log("$label: closed ($closeReason)")
         } finally {
             pinger.interrupt()
             shutdown()
@@ -313,7 +319,8 @@ class Channel(
 
     private var finished = false
 
-    fun close() {
+    fun close(reason: String? = null) {
+        if (closeReason == null && reason != null) closeReason = reason
         closed = true
         try {
             socket.close()

@@ -24,6 +24,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.net.wifi.WifiManager
 import android.provider.Settings
 import android.widget.Toast
 import dev.tether.R
@@ -205,6 +207,8 @@ class AudioStreamService : Service() {
     private var worker: Thread? = null
     private var mutedByUs = false
     private var next: Intent? = null // a newer consent, started once the current capture ends
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     @Volatile
     private var stopping = false
@@ -275,6 +279,7 @@ class AudioStreamService : Service() {
         record = rec
         rec.startRecording()
         silence()
+        holdLocks()
         stopping = false
         PhoneAudio.streamingTo = peer
         Hub.dispatch(NodeEvent.StatusChanged)
@@ -304,21 +309,54 @@ class AudioStreamService : Service() {
 
     private fun stream(peer: String, rec: AudioRecord) {
         var error: String? = null
-        try {
-            val node = Hub.node ?: throw IOException("Tether isn't running")
-            node.streamAudio(peer, PcmStream(rec), PhoneAudio.RATE, PhoneAudio.CHANNELS)
-        } catch (e: RemoteError) {
-            error = when (e.code) {
-                "cancelled" -> null // the computer stopped it
-                "denied" -> "The computer has phone audio turned off"
-                "unsupported" -> "That computer can't play phone audio"
-                else -> "Audio stopped: ${e.message}"
+        val source = PcmStream(rec)
+        while (!stopping) {
+            val node = Hub.node ?: break
+            try {
+                node.streamAudio(peer, source, PhoneAudio.RATE, PhoneAudio.CHANNELS)
+                break // ended on our side
+            } catch (e: RemoteError) {
+                error = when (e.code) {
+                    "cancelled" -> null // the computer stopped it
+                    "denied" -> "The computer has phone audio turned off"
+                    "unsupported" -> "That computer can't play phone audio"
+                    "not_found" -> if (resume(node, peer, rec)) continue else lost(node, peer)
+                    else -> "Audio stopped: ${e.message}"
+                }
+                break
+            } catch (e: IOException) {
+                if (stopping) break
+                // The connection dropped (Wi-Fi hiccup, the computer's service restarting…).
+                // Keep capturing and carry on over the next connection rather than giving up.
+                platform("audio: connection lost (${node.lastCloseReason(peer) ?: e.message}); reconnecting")
+                if (resume(node, peer, rec)) continue
+                error = lost(node, peer)
+                break
             }
-        } catch (e: IOException) {
-            if (!stopping) error = "Audio stopped: ${e.message}"
         }
         main.post { finishWith(peer, error) }
     }
+
+    private fun lost(node: dev.tether.core.Node, peer: String): String =
+        "Lost the connection to the computer" + (node.lastCloseReason(peer)?.let { " ($it)" } ?: "")
+
+    /** Waits up to [RESUME_MS] for the computer to be reachable again, discarding audio meanwhile. */
+    private fun resume(node: dev.tether.core.Node, peer: String, rec: AudioRecord): Boolean {
+        val deadline = System.currentTimeMillis() + RESUME_MS
+        val scratch = ByteArray(FRAME_BYTES)
+        var asked = false
+        while (!stopping && System.currentTimeMillis() < deadline) {
+            if (node.isConnected(peer)) return true
+            if (!asked) {
+                asked = true
+                node.pool.execute { runCatching { node.reconnectAll() } }
+            }
+            if (rec.read(scratch, 0, scratch.size, AudioRecord.READ_BLOCKING) < 0) return false
+        }
+        return false
+    }
+
+    private fun platform(msg: String) = AndroidPlatform(applicationContext).log(msg)
 
     /** Asks the capture to end; the worker notices and cleans up. */
     private fun halt() {
@@ -334,6 +372,7 @@ class AudioStreamService : Service() {
         projection?.let { runCatching { it.stop() } }
         projection = null
         unsilence()
+        releaseLocks()
         PhoneAudio.streamingTo = null
         Hub.dispatch(NodeEvent.StatusChanged)
         val node = Hub.node
@@ -346,6 +385,30 @@ class AudioStreamService : Service() {
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /**
+     * A steady stream doesn't survive Wi-Fi power saving well (with the screen off the radio
+     * naps and the connection stalls), so keep the radio in low-latency mode and the CPU awake.
+     */
+    private fun holdLocks() {
+        if (wifiLock == null) {
+            wifiLock = getSystemService(WifiManager::class.java)
+                ?.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "tether:audio")
+                ?.apply { setReferenceCounted(false); acquire() }
+        }
+        if (wakeLock == null) {
+            wakeLock = getSystemService(PowerManager::class.java)
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tether:audio")
+                ?.apply { setReferenceCounted(false); acquire(6 * 60 * 60 * 1000L) }
+        }
+    }
+
+    private fun releaseLocks() {
+        runCatching { wifiLock?.release() }
+        wifiLock = null
+        runCatching { wakeLock?.release() }
+        wakeLock = null
     }
 
     private fun silence() {
@@ -413,5 +476,6 @@ class AudioStreamService : Service() {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val FRAME_BYTES = PhoneAudio.RATE / 50 * PhoneAudio.CHANNELS * 2 // 20 ms
+        private const val RESUME_MS = 45_000L
     }
 }
