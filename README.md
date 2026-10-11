@@ -96,7 +96,7 @@ To also type arbitrary commands on the phone, run `tether set remote_shell on` (
 
 - **Notifications:** in the phone app, tap **Allow notification access**. Notifications then appear on the desktop; those from messaging apps get a **Reply** button. Turn individual apps off under **Settings → Apps** in the Tether window.
 - **Media:** tap **Media** next to your computer in the app, or use the playback notification that appears while something plays. This uses `playerctl`, which the installer adds, and works with any player that supports MPRIS (Spotify, Firefox, mpv, Rhythmbox…). Volume uses PipeWire's `wpctl`. To keep the phone out of it, turn off **Settings → Media** in the Tether window (or `tether set media off`).
-- **Phone audio:** tap **Phone audio** next to your computer in the app, or the speaker button by the phone in the Tether window (or `tether audio on`). Android asks each time before it lets an app capture what it plays; accept, and the phone's sound plays on the computer through PipeWire (`pacat`) as uncompressed 48 kHz stereo, about 1.5 Mbit/s. The phone goes quiet meanwhile unless you turn off **Audio → Silence this phone while streaming**. Volume: the slider under your computer in the app, **Quieter**/**Louder** in the notification, **Settings → Phone audio volume** in the window, or `tether audio volume 60`. Stop it from the notification, the app, or the window. Apps that forbid capture (some streaming apps, calls) aren't heard. To refuse it, turn off **Settings → Play phone audio here** (or `tether set phone_audio off`).
+- **Phone audio:** tap **Phone audio** next to your computer in the app, or the speaker button by the phone in the Tether window (or `tether audio on`). Android asks each time before it lets an app capture what it plays; accept, and the phone's sound plays on the computer through PipeWire (`pacat`) as uncompressed 48 kHz stereo, about 1.5 Mbit/s. The phone goes quiet meanwhile unless you turn off **Audio → Silence this phone while streaming**. Volume: the slider under your computer in the app, or **Quieter**/**Louder** in the notification, sets the computer's own output volume (PipeWire, via `wpctl`) and follows it when you change it there; `tether audio volume 60` does the same. Stop it from the notification, the app, or the window. Apps that forbid capture (some streaming apps, calls) aren't heard. To refuse it, turn off **Settings → Play phone audio here** (or `tether set phone_audio off`).
 - **Battery:** shown next to the phone in the top-bar menu and the Tether window; a notification warns at 15%.
 
 ### Wake-on-LAN
@@ -150,7 +150,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 - The clipboard carries text and images (up to 16 MB), not files.
 - Sync is between two devices at a time per folder, and very large folders (tens of thousands of files) send sizeable indexes.
-- Phone audio is Linux only for now, and plays one phone at a time; latency is roughly a fifth of a second, so video on the phone may look slightly ahead of its sound.
+- Phone audio is Linux only for now, and plays one phone at a time; latency is about a fifth of a second, growing to under half a second on a choppy network, so video on the phone may look slightly ahead of its sound.
 - Android's shared storage is case-insensitive; two files differing only in case on Linux will collide there.
 
 ## Development

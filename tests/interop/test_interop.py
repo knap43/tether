@@ -324,6 +324,8 @@ async def main(root: Path, cp: str):
                 self.closed = True
 
         A.audio_sink = Sink
+        real_media = A.media
+        real_media.has_wpctl = False  # never touch this machine's volume
         await k.cmd(f"audio {aid} 5")
         assert (await k.expect("AUDIOEND")) == "AUDIOEND done"
         expect_pcm = b"".join(bytes((f + i) & 0xFF for i in range(3840)) for f in range(5))
@@ -351,6 +353,7 @@ async def main(root: Path, cp: str):
         await k.cmd(f"audio {aid} forever")
         assert (await k.expect("AUDIOEND")) == "AUDIOEND denied"
         A.cfg["phone_audio"] = True
+        real_media.has_wpctl = bool(shutil.which("wpctl"))
         print("ok  phone audio (Kotlin side)")
 
         # --- wake-on-LAN: the computer shares its network cards; the phone sends magic packets

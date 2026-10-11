@@ -274,7 +274,7 @@ def cmd_notify(paths, args):
 def cmd_audio(paths, args):
     if args.state == "volume":
         if args.level is None:
-            print(f"{round(Ctl(paths).call('status').get('phone_audio_volume', 1.0) * 100)}%")
+            print(f"{round(Ctl(paths).call('phone_audio_volume', volume=None)['volume'] * 100)}%")
             return
         try:
             level = float(args.level.rstrip("%"))

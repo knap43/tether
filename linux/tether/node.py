@@ -197,6 +197,7 @@ class Node:
         self.audio_in = None  # (session, Incoming) of the phone audio stream playing here
         self.audio_sink = phoneaudio.PacatSink
         self.audio_out = None  # the sink playing it
+        self.audio_sent_volume: float | None = None  # last volume the streaming phone was told
         self.tasks: set[asyncio.Task] = set()
         self.load_sync_folders()
 
@@ -995,23 +996,28 @@ class Node:
         if (msg.get("format") != "s16le" or not isinstance(rate, int) or not 8000 <= rate <= 192000
                 or channels not in (1, 2)):
             raise ProtoError("bad_request")
-        sink = self.audio_sink(rate, channels, f"Audio from {s.name}", self.cfg["phone_audio_volume"])
+        # With PipeWire the phone's slider is the computer's own volume; the stream plays at full level.
+        gain = 1.0 if self.media.has_wpctl else self.cfg["phone_audio_volume"]
+        sink = self.audio_sink(rate, channels, f"Audio from {s.name}", gain)
         if self.audio_in:  # one phone at a time; the newest wins
             old, old_in = self.audio_in
             old_in.abort()
             old.audio = "off"
         self.audio_in = (s, inc)
         self.audio_out = sink
+        follow = None
         try:
             await s.channel.reply(msg)
-            await s.channel.send({"t": "audio_volume", "volume": self.cfg["phone_audio_volume"]})
             s.audio = "on"
             self.emit_status()
+            follow = s.channel.spawn(self._follow_volume(s))
             async for chunk in inc.chunks():
                 sink.write(chunk)
         except StreamAborted:
             pass
         finally:
+            if follow:
+                follow.cancel()
             await sink.close()
             if self.audio_in and self.audio_in[1] is inc:
                 self.audio_in = None
@@ -1019,18 +1025,44 @@ class Node:
                 s.audio = "off"
                 self.emit_status()
 
+    async def _audio_volume(self) -> float:
+        if self.media.has_wpctl:
+            v = await self.media.get_volume()
+            if v is not None:
+                return round(v, 3)
+        return self.cfg["phone_audio_volume"]
+
+    async def _follow_volume(self, s: Session) -> None:
+        """While the phone streams, keeps its volume slider in step with the computer's volume."""
+        self.audio_sent_volume = None
+        while True:
+            v = await self._audio_volume()
+            if self.audio_sent_volume is None or abs(v - self.audio_sent_volume) > 0.004:
+                self.audio_sent_volume = v
+                await s.channel.send({"t": "audio_volume", "volume": v})
+            await asyncio.sleep(1)
+
     async def set_phone_audio_volume(self, volume, origin: Session | None = None) -> float:
-        """Volume (0–1) of the phone's audio here; tells the streaming phone so its slider follows."""
+        """Sets the computer's output volume (0–1) from the phone or here; the streaming phone follows.
+
+        Without wpctl it falls back to scaling the phone's stream only."""
+        if volume is None:
+            return await self._audio_volume()
         if isinstance(volume, bool) or not isinstance(volume, (int, float)):
             raise ProtoError("bad_request", "volume must be a number from 0 to 1")
         volume = round(min(1.0, max(0.0, float(volume))), 3)
-        self.cfg["phone_audio_volume"] = volume
-        if self.audio_out:
-            self.audio_out.set_volume(volume)
-        if self.audio_in and self.audio_in[0] is not origin:
+        if self.media.has_wpctl:
+            await self.media.set_volume(volume)
+        else:
+            self.cfg["phone_audio_volume"] = volume
+            if self.audio_out:
+                self.audio_out.set_volume(volume)
+        if origin is not None:
+            self.audio_sent_volume = volume  # the phone already shows it
+        elif self.audio_in:
             s = self.audio_in[0]
+            self.audio_sent_volume = volume
             s.channel.spawn(s.channel.send({"t": "audio_volume", "volume": volume}))
-        self.emit_status()
         return volume
 
     async def _h_audio_volume(self, s, msg):
@@ -1097,7 +1129,6 @@ class Node:
             "media_available": self.media.available,
             "media": self.cfg["media"],
             "phone_audio": self.cfg["phone_audio"],
-            "phone_audio_volume": self.cfg["phone_audio_volume"],
             "phone_audio_available": phoneaudio.available(),
         }
 

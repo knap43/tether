@@ -15,8 +15,11 @@ log = logging.getLogger("tether.audio")
 
 F_SETPIPE_SZ = 1031
 PACAT_LATENCY_MS = 60
-TARGET_MS = 100  # jitter buffer kept ahead of playback, absorbing Wi-Fi hiccups
-MAX_MS = 400  # beyond this (the phone's clock runs fast, or a burst after a stall) we skip back to TARGET_MS
+TARGET_MS = 100  # jitter buffer kept ahead of playback, absorbing Wi-Fi hiccups…
+TARGET_MAX_MS = 400  # …grown after each dropout, up to this, when the network is choppier
+TARGET_STEP_MS = 60
+SETTLE_S = 60  # after this long without a dropout, the target creeps back down
+MAX_MS = 700  # beyond this (the phone's clock runs fast, or a burst after a stall) we skip back to TARGET_MS
 PIECE_MS = 10
 
 
@@ -48,7 +51,11 @@ class PacatSink:
         align = lambda n: int(n) - int(n) % self.frame  # noqa: E731
         self.piece = align(per_ms * PIECE_MS)
         self.target = align(per_ms * TARGET_MS)
+        self.base = self.target
+        self.step = align(per_ms * TARGET_STEP_MS)
+        self.target_max = align(per_ms * TARGET_MAX_MS)
         self.limit = align(per_ms * MAX_MS)
+        self.calm_pieces = 0  # pieces played since the last dropout
         self.slack = align(per_ms * 30)
         self.silence = bytes(self.piece)
         self.gain = gain_for(volume)
@@ -94,6 +101,10 @@ class PacatSink:
             if not self.primed and len(self.buf) >= self.target:
                 self.primed = True
             if self.primed and len(self.buf) >= self.piece:
+                self.calm_pieces += 1
+                if self.calm_pieces >= SETTLE_S * 1000 // PIECE_MS and self.target > self.base:
+                    self.calm_pieces = 0
+                    self.target = max(self.base, self.target - self.step // 2)
                 level = len(self.buf)
                 out = bytes(self.buf[: self.piece])
                 del self.buf[: self.piece]
@@ -107,9 +118,12 @@ class PacatSink:
                 elif level < self.target - self.slack:
                     out += out[-self.frame :]
                 return out
-            if self.primed:  # ran dry: refill to the target before playing again
+            if self.primed:  # ran dry: refill before playing again, and keep more in hand from now on
                 self.primed = False
                 self.underruns += 1
+                self.calm_pieces = 0
+                self.target = min(self.target_max, self.target + self.step)
+                self.limit = max(self.limit, self.target * 2)
             return self.silence
 
     def _scale(self, pcm: bytes) -> bytes:

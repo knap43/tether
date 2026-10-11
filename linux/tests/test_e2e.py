@@ -416,6 +416,8 @@ async def main(root: Path):
             self.closed = True
 
     A.audio_sink = FakeSink
+    real_media = A.media
+    real_media.has_wpctl = False  # never touch this machine's volume
     pcm = os.urandom(3840 * 10)
 
     async def finite():
@@ -424,7 +426,7 @@ async def main(root: Path):
 
     await sb.request({"t": "audio", "rate": 48000, "channels": 2, "format": "s16le"}, upload=finite())
     await until(lambda: FakeSink.made and FakeSink.made[0].closed, what="audio stream end")
-    assert bytes(FakeSink.made[0].data) == pcm
+    assert bytes(FakeSink.made[0].data) == pcm, (len(FakeSink.made), len(FakeSink.made[0].data), len(pcm))
     assert A.sessions[B.identity.id].audio == "off"
 
     async def endless():
@@ -438,6 +440,25 @@ async def main(root: Path):
     await sb.send({"t": "audio_volume", "volume": 0.5})
     await until(lambda: FakeSink.made[1].volume == 0.5 and A.cfg["phone_audio_volume"] == 0.5, what="volume from phone")
     assert (await A.set_phone_audio_volume(1.7)) == 1.0 and FakeSink.made[1].volume == 1.0
+    # with PipeWire the phone's slider drives the computer's own volume, and follows it
+    class FakeVolume:
+        has_wpctl, level, available = True, 0.3, False
+
+        async def get_volume(self):
+            return self.level
+
+        async def set_volume(self, v):
+            self.level = v
+
+    A.media = FakeVolume()
+    await sb.send({"t": "audio_volume", "volume": 0.8})
+    await until(lambda: A.media.level == 0.8, what="system volume from phone")
+    assert FakeSink.made[1].volume == 1.0, "stream gain must stay at full with wpctl"
+    told = []
+    B._h_audio_volume = lambda s, msg: told.append(msg["volume"]) or asyncio.sleep(0)
+    A.media.level = 0.25  # changed on the computer
+    await until(lambda: 0.25 in told, what="phone told about the system volume")
+    A.media = real_media
     await A.set_phone_audio(B.identity.id, False)
     try:
         await asyncio.wait_for(streaming, 5)
@@ -452,6 +473,7 @@ async def main(root: Path):
     except ProtoError as e:
         assert e.code == "denied", e
     A.cfg["phone_audio"] = True
+    real_media.has_wpctl = bool(shutil.which("wpctl"))
     print("ok  phone audio")
 
     # --- reconnect after drop

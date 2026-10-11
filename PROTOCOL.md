@@ -210,9 +210,10 @@ stop streaming to it; starting needs the user's consent on the phone.
 `{"t": "audio_state", "on": false}` (phone → desktop) reports that the phone
 stopped, or won't start (consent declined).
 
-`{"t": "audio_volume", "volume": 0–1}` goes either way: the volume the desktop
-plays the phone's audio at. The desktop sends it when a stream starts and when
-its own setting changes; the phone sends it from its slider.
+`{"t": "audio_volume", "volume": 0–1}` goes either way: the desktop's output
+volume (on Linux, the default PipeWire sink). While a stream plays the desktop
+sends it at the start and whenever the volume changes; the phone sends it from
+its slider.
 
 ### Wake-on-LAN (desktop → phone)
 
