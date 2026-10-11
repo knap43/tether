@@ -72,6 +72,7 @@ DEFAULTS = {
     "notif_muted": [],
     "media": True,
     "phone_audio": True,
+    "phone_audio_volume": 1.0,
 }
 
 

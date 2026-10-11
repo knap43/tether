@@ -272,6 +272,17 @@ def cmd_notify(paths, args):
 
 
 def cmd_audio(paths, args):
+    if args.state == "volume":
+        if args.level is None:
+            print(f"{round(Ctl(paths).call('status').get('phone_audio_volume', 1.0) * 100)}%")
+            return
+        try:
+            level = float(args.level.rstrip("%"))
+        except ValueError:
+            die("volume is a percentage, 0–100")
+        res = Ctl(paths).call("phone_audio_volume", volume=level / 100)
+        print(f"{round(res['volume'] * 100)}%")
+        return
     Ctl(paths).call("phone_audio", device=args.device, on=args.state == "on")
     if args.state == "on":
         print("asked the phone to stream its audio here — accept on the phone if it asks")
@@ -461,7 +472,8 @@ def main(argv=None):
     p.set_defaults(fn=cmd_notify)
 
     p = sub.add_parser("audio", help="play the phone's audio on this computer")
-    p.add_argument("state", choices=["on", "off"])
+    p.add_argument("state", choices=["on", "off", "volume"])
+    p.add_argument("level", nargs="?", help="for volume: 0–100")
     p.add_argument("-d", "--device")
     p.set_defaults(fn=cmd_audio)
 

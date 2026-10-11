@@ -196,6 +196,7 @@ class Node:
         self.low_battery: set[str] = set()
         self.audio_in = None  # (session, Incoming) of the phone audio stream playing here
         self.audio_sink = phoneaudio.PacatSink
+        self.audio_out = None  # the sink playing it
         self.tasks: set[asyncio.Task] = set()
         self.load_sync_folders()
 
@@ -994,14 +995,16 @@ class Node:
         if (msg.get("format") != "s16le" or not isinstance(rate, int) or not 8000 <= rate <= 192000
                 or channels not in (1, 2)):
             raise ProtoError("bad_request")
-        sink = self.audio_sink(rate, channels, f"Audio from {s.name}")
+        sink = self.audio_sink(rate, channels, f"Audio from {s.name}", self.cfg["phone_audio_volume"])
         if self.audio_in:  # one phone at a time; the newest wins
             old, old_in = self.audio_in
             old_in.abort()
             old.audio = "off"
         self.audio_in = (s, inc)
+        self.audio_out = sink
         try:
             await s.channel.reply(msg)
+            await s.channel.send({"t": "audio_volume", "volume": self.cfg["phone_audio_volume"]})
             s.audio = "on"
             self.emit_status()
             async for chunk in inc.chunks():
@@ -1012,8 +1015,26 @@ class Node:
             await sink.close()
             if self.audio_in and self.audio_in[1] is inc:
                 self.audio_in = None
+                self.audio_out = None
                 s.audio = "off"
                 self.emit_status()
+
+    async def set_phone_audio_volume(self, volume, origin: Session | None = None) -> float:
+        """Volume (0–1) of the phone's audio here; tells the streaming phone so its slider follows."""
+        if isinstance(volume, bool) or not isinstance(volume, (int, float)):
+            raise ProtoError("bad_request", "volume must be a number from 0 to 1")
+        volume = round(min(1.0, max(0.0, float(volume))), 3)
+        self.cfg["phone_audio_volume"] = volume
+        if self.audio_out:
+            self.audio_out.set_volume(volume)
+        if self.audio_in and self.audio_in[0] is not origin:
+            s = self.audio_in[0]
+            s.channel.spawn(s.channel.send({"t": "audio_volume", "volume": volume}))
+        self.emit_status()
+        return volume
+
+    async def _h_audio_volume(self, s, msg):
+        await self.set_phone_audio_volume(msg.get("volume"), origin=s)
 
     async def _h_audio_state(self, s, msg):
         """The phone reports it stopped (or never started, e.g. the user declined)."""
@@ -1076,6 +1097,7 @@ class Node:
             "media_available": self.media.available,
             "media": self.cfg["media"],
             "phone_audio": self.cfg["phone_audio"],
+            "phone_audio_volume": self.cfg["phone_audio_volume"],
             "phone_audio_available": phoneaudio.available(),
         }
 

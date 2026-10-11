@@ -14,6 +14,7 @@ import dev.tether.core.Settings
 import dev.tether.core.SyncFolder
 import dev.tether.core.RemoteError
 import dev.tether.core.streamAudio
+import dev.tether.core.setAudioVolume
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -47,6 +48,7 @@ fun main(args: Array<String>) {
                 is NodeEvent.Unpaired -> emit("UNPAIRED ${event.id}")
                 is NodeEvent.Notification -> emit("NOTIFY ${event.title}|${event.text}")
                 is NodeEvent.AudioControl -> emit("AUDIOCTL ${event.on}")
+                is NodeEvent.AudioVolume -> emit("AUDIOVOL ${event.volume}")
                 is NodeEvent.MediaUpdate -> emit("MEDIA ${event.state.active?.title}|${event.state.active?.status}")
                 is NodeEvent.TransferProgress -> {
                     val i = event.info
@@ -209,6 +211,10 @@ fun main(args: Array<String>) {
                         }
                         emit("AUDIOEND $code")
                     }.start()
+                    emit("OK")
+                }
+                "avol" -> {
+                    node.setAudioVolume(parts[1], parts[2].toDouble())
                     emit("OK")
                 }
                 "quit" -> break

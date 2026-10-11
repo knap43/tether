@@ -21,6 +21,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.slider.LabelFormatter
+import com.google.android.material.slider.Slider
 import dev.tether.R
 import dev.tether.core.Node
 import dev.tether.core.NodeEvent
@@ -39,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private var sendTarget: String? = null
     private var pendingPairPrompt: String? = null
     private val listener: (NodeEvent) -> Unit = { onNodeEvent(it) }
+    private var audioSlider: Pair<String, Slider>? = null
+    private var audioSliderDragging = false
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val target = sendTarget
@@ -95,6 +99,13 @@ class MainActivity : AppCompatActivity() {
             is NodeEvent.PairFailed -> {
                 pairDialog?.dismiss()
                 snack("Pairing ${if (e.reason == "timeout") "timed out" else "was cancelled"}")
+            }
+            is NodeEvent.AudioVolume -> {
+                val (peer, slider) = audioSlider ?: return
+                if (peer == e.from && !audioSliderDragging) {
+                    slider.value = Math.round(e.volume * 100).toFloat().coerceIn(0f, 100f)
+                }
+                return
             }
             is NodeEvent.StatusChanged, is NodeEvent.Unpaired -> {}
             else -> return // transfers, media and clipboard events don't change this screen
@@ -235,6 +246,7 @@ class MainActivity : AppCompatActivity() {
                         },
                     ),
                 )
+                if (PhoneAudio.streamingTo == p.id) card.addView(audioVolumeRow(p.id))
             } else if (node.canWake(p.id)) {
                 card.addView(
                     ui.chips(
@@ -376,6 +388,41 @@ class MainActivity : AppCompatActivity() {
                 node.settings.save()
             },
         )
+    }
+
+    /** Volume the computer plays this phone's audio at; sent when the finger lifts. */
+    private fun audioVolumeRow(peer: String): View {
+        val slider = Slider(this).apply {
+            valueFrom = 0f
+            valueTo = 100f
+            stepSize = 1f
+            labelBehavior = LabelFormatter.LABEL_GONE
+            value = Math.round((PhoneAudio.volume[peer] ?: 1.0) * 100).toFloat().coerceIn(0f, 100f)
+            addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(slider: Slider) {
+                    audioSliderDragging = true
+                }
+
+                override fun onStopTrackingTouch(slider: Slider) {
+                    audioSliderDragging = false
+                    PhoneAudio.setVolume(this@MainActivity, peer, slider.value / 100.0)
+                }
+            })
+        }
+        audioSlider = peer to slider
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(ui.iconButton(R.drawable.ic_volume_off, "Quieter") {
+                slider.value = (slider.value - 10f).coerceAtLeast(0f)
+                PhoneAudio.setVolume(this@MainActivity, peer, slider.value / 100.0)
+            })
+            addView(slider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(ui.iconButton(R.drawable.ic_volume, "Louder") {
+                slider.value = (slider.value + 10f).coerceAtMost(100f)
+                PhoneAudio.setVolume(this@MainActivity, peer, slider.value / 100.0)
+            })
+        }
     }
 
     private fun renderAudio() {

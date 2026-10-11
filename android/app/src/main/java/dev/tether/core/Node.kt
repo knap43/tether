@@ -62,6 +62,9 @@ sealed class NodeEvent {
 
     /** A computer asks us to start or stop streaming this phone's audio to it. */
     data class AudioControl(val from: String, val fromName: String, val on: Boolean) : NodeEvent()
+
+    /** The volume (0–1) the computer plays this phone's audio at changed. */
+    data class AudioVolume(val from: String, val volume: Double) : NodeEvent()
 }
 
 class PairState(val initiator: Boolean) {
@@ -382,6 +385,11 @@ class Node(
                     }
                     "media_update" -> platform.onEvent(NodeEvent.MediaUpdate(s.peerId, s.name, MediaState.parse(msg)))
                     "audio_ctl" -> platform.onEvent(NodeEvent.AudioControl(s.peerId, s.name, msg.bool("on") == true))
+                    "audio_volume" -> {
+                        val v = (msg["volume"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()
+                            ?: throw RemoteError("bad_request")
+                        platform.onEvent(NodeEvent.AudioVolume(s.peerId, v.coerceIn(0.0, 1.0)))
+                    }
                     "notify" -> {
                         val title = msg.str("title") ?: throw RemoteError("bad_request")
                         platform.onEvent(NodeEvent.Notification(s.peerId, s.name, title.take(200), (msg.str("text") ?: "").take(4000)))

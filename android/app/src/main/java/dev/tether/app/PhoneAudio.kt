@@ -30,6 +30,7 @@ import dev.tether.R
 import dev.tether.core.NodeEvent
 import dev.tether.core.RemoteError
 import dev.tether.core.reportAudioState
+import dev.tether.core.setAudioVolume
 import dev.tether.core.streamAudio
 import java.io.IOException
 import java.io.InputStream
@@ -51,6 +52,18 @@ object PhoneAudio {
     var streamingTo: String? = null
         internal set
 
+    /** Volume (0–1) each computer plays our audio at, as it last told us. */
+    val volume = java.util.concurrent.ConcurrentHashMap<String, Double>()
+
+    /** Sets how loud the computer plays our stream. */
+    fun setVolume(context: Context, peer: String, v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        volume[peer] = clamped
+        val node = Hub.node ?: return
+        node.pool.execute { node.setAudioVolume(peer, clamped) }
+        AudioStreamService.refresh(context)
+    }
+
     fun silencePhone(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SILENCE, true)
 
@@ -67,6 +80,11 @@ object PhoneAudio {
         if (streamingTo != null) {
             context.startService(Intent(context, AudioStreamService::class.java).setAction(AudioStreamService.ACTION_STOP))
         }
+    }
+
+    fun onVolume(context: Context, e: NodeEvent.AudioVolume) {
+        volume[e.from] = e.volume
+        AudioStreamService.refresh(context)
     }
 
     /** A computer asked for (or no longer wants) the phone's audio. */
@@ -196,6 +214,14 @@ class AudioStreamService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> begin(intent)
+            ACTION_LOUDER, ACTION_QUIETER -> PhoneAudio.streamingTo?.let { peer ->
+                val now = PhoneAudio.volume[peer] ?: 1.0
+                val step = if (intent.action == ACTION_LOUDER) 0.1 else -0.1
+                PhoneAudio.setVolume(this, peer, Math.round((now + step) * 10) / 10.0)
+            }
+            ACTION_REFRESH -> PhoneAudio.streamingTo?.let { peer ->
+                getSystemService(NotificationManager::class.java)?.notify(Notifications.ID_AUDIO, buildNotification(peerName(peer), peer))
+            }
             ACTION_STOP -> if (worker == null) stopSelf() else halt()
             else -> stopSelf()
         }
@@ -217,10 +243,9 @@ class AudioStreamService : Service() {
             intent.getParcelableExtra(EXTRA_DATA)
         }
         val node = Hub.node
-        val name = peer?.let { node?.peers?.get(it)?.name } ?: "your computer"
         // Android requires the foreground service (of type mediaProjection) before the projection.
         startForeground(
-            Notifications.ID_AUDIO, buildNotification(name),
+            Notifications.ID_AUDIO, buildNotification(peerName(peer), peer),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
         if (worker != null) {
@@ -339,18 +364,24 @@ class AudioStreamService : Service() {
         am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
     }
 
-    private fun buildNotification(computer: String): Notification {
-        val stop = PendingIntent.getService(
-            this, 0, Intent(this, AudioStreamService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
+    private fun peerName(peer: String?): String = peer?.let { Hub.node?.peers?.get(it)?.name } ?: "your computer"
+
+    private fun buildNotification(computer: String, peer: String?): Notification {
+        fun action(a: String, code: Int) = PendingIntent.getService(
+            this, code, Intent(this, AudioStreamService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE,
         )
+        val vol = peer?.let { PhoneAudio.volume[it] }
         return Notification.Builder(this, Notifications.CH_AUDIO)
             .setSmallIcon(R.drawable.ic_volume)
             .setColor(md(R.color.md_primary))
             .setContentTitle("Playing on $computer")
-            .setContentText("This phone's audio is streaming to your computer")
+            .setContentText(if (vol != null) "Volume ${Math.round(vol * 100)}%" else "This phone's audio is streaming to your computer")
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(Notifications.openApp(this))
-            .addAction(Notification.Action.Builder(null, "Stop", stop).build())
+            .addAction(Notification.Action.Builder(null, "Quieter", action(ACTION_QUIETER, 1)).build())
+            .addAction(Notification.Action.Builder(null, "Louder", action(ACTION_LOUDER, 2)).build())
+            .addAction(Notification.Action.Builder(null, "Stop", action(ACTION_STOP, 0)).build())
             .build()
     }
 
@@ -370,6 +401,15 @@ class AudioStreamService : Service() {
     companion object {
         const val ACTION_START = "dev.tether.AUDIO_START"
         const val ACTION_STOP = "dev.tether.AUDIO_STOP"
+        const val ACTION_LOUDER = "dev.tether.AUDIO_LOUDER"
+        const val ACTION_QUIETER = "dev.tether.AUDIO_QUIETER"
+        private const val ACTION_REFRESH = "dev.tether.AUDIO_REFRESH"
+
+        /** Redraws the streaming notification (its volume line). */
+        fun refresh(context: Context) {
+            if (PhoneAudio.streamingTo == null) return
+            context.startService(Intent(context, AudioStreamService::class.java).setAction(ACTION_REFRESH))
+        }
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val FRAME_BYTES = PhoneAudio.RATE / 50 * PhoneAudio.CHANNELS * 2 // 20 ms

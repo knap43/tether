@@ -334,6 +334,9 @@ class TetherWindow(Adw.ApplicationWindow):
                 "Start it from the phone, or with the speaker button by the phone" if st.get("phone_audio_available", True)
                 else "Needs pacat (from libpulse), which isn't installed"
             )
+            self.volume_row.set_sensitive(bool(st.get("phone_audio", True)))
+            if time.monotonic() - self._volume_touched > 1.0:
+                self.volume_scale.set_value(round(float(st.get("phone_audio_volume", 1.0)) * 100))
             self.media_row.set_subtitle(
                 "Play, pause, skip, seek and volume, from the phone" if st.get("media_available", True)
                 else "Needs playerctl, which isn't installed"
@@ -395,6 +398,18 @@ class TetherWindow(Adw.ApplicationWindow):
             row.add_suffix(more)
             rows.append(row)
         return rows
+
+    def on_volume_changed(self, scale):
+        if self._updating:
+            return
+        self._volume_touched = time.monotonic()
+        if self._volume_pending is None:  # send at most every 80 ms while dragging
+            self._volume_pending = GLib.timeout_add(80, self._send_volume)
+
+    def _send_volume(self):
+        self._volume_pending = None
+        self.call("phone_audio_volume", refresh=False, volume=self.volume_scale.get_value() / 100)
+        return False
 
     def _audio_toggle(self, d: dict) -> Gtk.ToggleButton:
         on = d.get("audio") in ("on", "starting")
@@ -901,6 +916,17 @@ class TetherWindow(Adw.ApplicationWindow):
         self.audio_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="phone_audio", value=r.get_active()))
         media.add(self.audio_row)
+        self.volume_row = Adw.ActionRow(title="Phone audio volume")
+        self.volume_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.volume_scale.set_draw_value(False)
+        self.volume_scale.set_hexpand(True)
+        self.volume_scale.set_size_request(180, -1)
+        self.volume_scale.set_valign(Gtk.Align.CENTER)
+        self.volume_scale.connect("value-changed", self.on_volume_changed)
+        self.volume_row.add_suffix(self.volume_scale)
+        media.add(self.volume_row)
+        self._volume_touched = 0.0
+        self._volume_pending = None
         page.add(media)
 
         self.wol = ListGroup("Wake on LAN",

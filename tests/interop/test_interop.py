@@ -309,12 +309,16 @@ async def main(root: Path, cp: str):
         class Sink:
             made = []
 
-            def __init__(self, rate, channels, title):
+            def __init__(self, rate, channels, title, volume=1.0):
+                self.volume = volume
                 self.data, self.closed = bytearray(), False
                 Sink.made.append(self)
 
             def write(self, data):
                 self.data.extend(data)
+
+            def set_volume(self, volume):
+                self.volume = volume
 
             async def close(self):
                 self.closed = True
@@ -332,6 +336,14 @@ async def main(root: Path, cp: str):
         await k.cmd(f"audio {aid} forever")
         while A.sessions[kid].audio != "on":
             await asyncio.sleep(0.05)
+        assert (await k.expect("AUDIOVOL")) == "AUDIOVOL 1.0"
+        await k.cmd(f"avol {aid} 0.4")
+        while A.cfg["phone_audio_volume"] != 0.4:
+            await asyncio.sleep(0.05)
+        assert Sink.made[-1].volume == 0.4
+        await A.set_phone_audio_volume(0.7)
+        while (await k.expect("AUDIOVOL")) != "AUDIOVOL 0.7":
+            pass  # the volume each stream started with may still be queued
         await A.set_phone_audio(kid, False)
         assert (await k.expect("AUDIOEND")) == "AUDIOEND cancelled"
         assert (await k.expect("AUDIOCTL")) == "AUDIOCTL false"

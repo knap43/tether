@@ -207,6 +207,8 @@ class ControlServer:
         if cmd == "phone_audio":
             await n.set_phone_audio(n_resolve(n, req.get("device"), connected=True), bool(req.get("on")))
             return None
+        if cmd == "phone_audio_volume":
+            return {"volume": await n.set_phone_audio_volume(req.get("volume"))}
         if cmd == "media_state":
             return await n.media.state()
         if cmd == "debug_send" and os.environ.get("TETHER_DEBUG"):

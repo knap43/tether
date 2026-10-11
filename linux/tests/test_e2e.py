@@ -401,12 +401,16 @@ async def main(root: Path):
     class FakeSink:
         made = []
 
-        def __init__(self, rate, channels, title):
+        def __init__(self, rate, channels, title, volume=1.0):
+            self.volume = volume
             self.data, self.closed = bytearray(), False
             FakeSink.made.append(self)
 
         def write(self, data):
             self.data.extend(data)
+
+        def set_volume(self, volume):
+            self.volume = volume
 
         async def close(self):
             self.closed = True
@@ -431,6 +435,9 @@ async def main(root: Path):
     streaming = asyncio.ensure_future(sb.request({"t": "audio", "rate": 48000, "channels": 2, "format": "s16le"},
                                                  upload=endless()))
     await until(lambda: A.sessions[B.identity.id].audio == "on", what="audio on")
+    await sb.send({"t": "audio_volume", "volume": 0.5})
+    await until(lambda: FakeSink.made[1].volume == 0.5 and A.cfg["phone_audio_volume"] == 0.5, what="volume from phone")
+    assert (await A.set_phone_audio_volume(1.7)) == 1.0 and FakeSink.made[1].volume == 1.0
     await A.set_phone_audio(B.identity.id, False)
     try:
         await asyncio.wait_for(streaming, 5)

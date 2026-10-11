@@ -21,3 +21,8 @@ fun Node.streamAudio(peerId: String, source: InputStream, rate: Int, channels: I
 fun Node.reportAudioState(peerId: String, on: Boolean) {
     session(peerId)?.channel?.trySend(jobj("t" to "audio_state", "on" to on))
 }
+
+/** Sets how loud the computer plays this phone's audio (0–1). */
+fun Node.setAudioVolume(peerId: String, volume: Double) {
+    session(peerId)?.channel?.trySend(jobj("t" to "audio_volume", "volume" to volume.coerceIn(0.0, 1.0)))
+}
