@@ -153,7 +153,7 @@ class BrowseActivity : AppCompatActivity() {
     // -- toolbar ----------------------------------------------------------------------
 
     private fun buildMenu() {
-        val tint = ColorStateList.valueOf(getColor(R.color.md_on_surface_variant))
+        val tint = ColorStateList.valueOf(md(R.color.md_on_surface_variant))
         fun add(title: String, icon: Int, action: () -> Unit) =
             screen.toolbar.menu.add(title).apply {
                 setIcon(icon)
@@ -441,10 +441,10 @@ class BrowseActivity : AppCompatActivity() {
             sub.visibility = if (s.isEmpty()) View.GONE else View.VISIBLE
             glyph.setImageResource(if (e.dir) R.drawable.ic_folder else R.drawable.ic_file)
             glyph.imageTintList = ColorStateList.valueOf(
-                getColor(if (e.dir) R.color.md_on_primary_container else R.color.md_on_surface_variant),
+                md(if (e.dir) R.color.md_on_primary_container else R.color.md_on_surface_variant),
             )
             (badge.background as? GradientDrawable)?.setColor(
-                getColor(if (e.dir) R.color.md_primary_container else R.color.md_surface_container_highest),
+                md(if (e.dir) R.color.md_primary_container else R.color.md_surface_container_highest),
             )
             itemView.setOnClickListener { if (e.dir) load(child(e.name)) else open(e) }
             itemView.setOnLongClickListener { showMenu(more, e); true }

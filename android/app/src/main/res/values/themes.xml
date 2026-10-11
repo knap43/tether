@@ -55,10 +55,8 @@
 
     <style name="Theme.Tether" parent="Theme.Tether.Base" />
 
-    <style name="ThemeOverlay.Tether.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
-        <item name="colorSurfaceContainerHigh">@color/md_surface_container_high</item>
-        <item name="colorPrimary">@color/md_primary</item>
-    </style>
+    <!-- Dialogs inherit the activity's scheme, so they follow system colors too. -->
+    <style name="ThemeOverlay.Tether.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog" />
 
     <!-- The share target appears as a small floating card. -->
     <style name="Theme.Tether.Dialog" parent="Theme.Tether.Base">

@@ -205,7 +205,7 @@ class TetherService : Service() {
             val channel = if (Notifications.statusVisible(context)) Notifications.CH_SERVICE else Notifications.CH_SERVICE_HIDDEN
             val b = Notification.Builder(context, channel)
                 .setSmallIcon(R.drawable.ic_stat)
-                .setColor(context.getColor(R.color.md_primary))
+                .setColor(context.md(R.color.md_primary))
                 .setContentTitle("Tether")
                 .setContentText(text)
                 .setOnlyAlertOnce(true)

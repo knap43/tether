@@ -134,7 +134,7 @@ object Notifications {
         val n = Notification.Builder(context, channel)
             .setSubText(subText)
             .setSmallIcon(R.drawable.ic_stat)
-            .setColor(context.getColor(R.color.md_primary))
+            .setColor(context.md(R.color.md_primary))
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))

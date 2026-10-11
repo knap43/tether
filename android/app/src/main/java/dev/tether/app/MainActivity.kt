@@ -142,6 +142,7 @@ class MainActivity : AppCompatActivity() {
         renderNotifications(node)
         renderFiles(node)
         renderBackground()
+        renderAppearance()
         pendingPairPrompt?.let { id ->
             node.pendingPairs().firstOrNull { it.id == id && !it.confirmed }?.let { showPairDialog(it.id, it.name, it.sas) }
             pendingPairPrompt = null
@@ -460,6 +461,42 @@ class MainActivity : AppCompatActivity() {
                 },
             ),
         )
+    }
+
+    private fun renderAppearance() {
+        content.addView(ui.section("Appearance"))
+        val card = ui.card(content)
+        card.addView(
+            ui.row(
+                "App icon",
+                Appearance.icon(this).label,
+                leading = ui.avatar(R.drawable.ic_palette),
+                onClick = { showIconPicker() },
+            ),
+        )
+        if (Appearance.systemColorsAvailable) {
+            card.addView(
+                ui.switchRow("Use system colors", "Take the app's colors from your wallpaper", Appearance.systemColors(this)) {
+                    Appearance.setSystemColors(this, it)
+                    recreate()
+                },
+            )
+        }
+    }
+
+    private fun showIconPicker() {
+        val icons = Appearance.icons()
+        val current = icons.indexOf(Appearance.icon(this))
+        ui.dialog()
+            .setTitle("App icon")
+            .setSingleChoiceItems(icons.map { it.label }.toTypedArray(), current) { d, which ->
+                Appearance.setIcon(this, icons[which])
+                d.dismiss()
+                snack("Some launchers take a moment to update the icon")
+                render()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // -- actions --------------------------------------------------------------------------

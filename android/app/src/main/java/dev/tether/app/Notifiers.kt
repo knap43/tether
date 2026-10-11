@@ -51,7 +51,7 @@ object MediaNotifier {
         )
         val n = Notification.Builder(context, Notifications.CH_MEDIA)
             .setSmallIcon(R.drawable.ic_stat)
-            .setColor(context.getColor(R.color.md_primary))
+            .setColor(context.md(R.color.md_primary))
             .setContentTitle(p.title.ifEmpty { p.identity })
             .setContentText(listOf(p.artist, "on $computer").filter { it.isNotEmpty() }.joinToString(" · "))
             .setContentIntent(open)
@@ -101,7 +101,7 @@ object TransferNotifier {
                 val where = if (info.incoming) "from ${info.peerName}" else "to ${info.peerName}"
                 val n = Notification.Builder(context, Notifications.CH_TRANSFERS)
                     .setSmallIcon(if (info.incoming) android.R.drawable.stat_sys_download else android.R.drawable.stat_sys_upload)
-                    .setColor(context.getColor(R.color.md_primary))
+                    .setColor(context.md(R.color.md_primary))
                     .setContentTitle("$verb ${info.name}")
                     .setContentText("${humanSize(info.done)} of ${humanSize(total)} $where")
                     .setProgress(100, pct, total == null)

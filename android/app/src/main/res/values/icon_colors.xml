@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="icon_colorful_background">#FF3B5BDB</color>
+    <!-- System-colored icon; Android 12+ overrides these in values-v31. -->
+    <color name="icon_system_bg">#FF17130E</color>
+    <color name="icon_system_fg">#FFE1A34F</color>
+    <color name="icon_system_fg2">#FFF4EBD9</color>
+</resources>

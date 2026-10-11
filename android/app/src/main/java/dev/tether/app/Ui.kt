@@ -43,7 +43,7 @@ private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 class Ui(val ctx: Context) {
     fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
 
-    fun color(res: Int) = ctx.getColor(res)
+    fun color(res: Int) = ctx.md(res)
 
     // -- text -------------------------------------------------------------------------
 
@@ -285,12 +285,12 @@ class Screen(activity: AppCompatActivity, title: String, back: Boolean, scrollin
     val ui = Ui(activity)
     val root = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
-        setBackgroundColor(activity.getColor(R.color.md_background))
+        setBackgroundColor(activity.md(R.color.md_background))
     }
     val toolbar = MaterialToolbar(activity).apply {
         this.title = title
-        setTitleTextColor(activity.getColor(R.color.md_on_surface))
-        setSubtitleTextColor(activity.getColor(R.color.md_on_surface_variant))
+        setTitleTextColor(activity.md(R.color.md_on_surface))
+        setSubtitleTextColor(activity.md(R.color.md_on_surface_variant))
         if (back) {
             setNavigationIcon(R.drawable.ic_back)
             navigationContentDescription = "Back"
@@ -298,7 +298,7 @@ class Screen(activity: AppCompatActivity, title: String, back: Boolean, scrollin
         }
     }
     private val appBar = AppBarLayout(activity).apply {
-        setBackgroundColor(activity.getColor(R.color.md_background))
+        setBackgroundColor(activity.md(R.color.md_background))
         addView(toolbar, LinearLayout.LayoutParams(MATCH, WRAP))
     }
 

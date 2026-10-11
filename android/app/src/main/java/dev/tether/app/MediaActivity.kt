@@ -75,7 +75,7 @@ class MediaActivity : AppCompatActivity() {
             addView(
                 ImageView(this@MediaActivity).apply {
                     setImageResource(R.drawable.ic_music)
-                    imageTintList = ColorStateList.valueOf(getColor(R.color.md_primary))
+                    imageTintList = ColorStateList.valueOf(md(R.color.md_primary))
                 },
                 FrameLayout.LayoutParams(side / 3, side / 3, Gravity.CENTER),
             )
