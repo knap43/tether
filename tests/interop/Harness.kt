@@ -12,6 +12,8 @@ import dev.tether.core.RemoteCommands
 import dev.tether.core.RemoteFs
 import dev.tether.core.Settings
 import dev.tether.core.SyncFolder
+import dev.tether.core.RemoteError
+import dev.tether.core.streamAudio
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -44,6 +46,7 @@ fun main(args: Array<String>) {
                 is NodeEvent.FileReceived -> emit("FILE ${event.file.path}")
                 is NodeEvent.Unpaired -> emit("UNPAIRED ${event.id}")
                 is NodeEvent.Notification -> emit("NOTIFY ${event.title}|${event.text}")
+                is NodeEvent.AudioControl -> emit("AUDIOCTL ${event.on}")
                 is NodeEvent.MediaUpdate -> emit("MEDIA ${event.state.active?.title}|${event.state.active?.status}")
                 is NodeEvent.TransferProgress -> {
                     val i = event.info
@@ -179,6 +182,35 @@ fun main(args: Array<String>) {
                 }
                 "canwake" -> emit("CANWAKE ${node.canWake(parts[1])} ${node.peers.get(parts[1])?.wol?.joinToString { it.mac }}")
                 "wake" -> emit("WOKE " + node.wake(parts[1], listOf(parts[2].toInt())))
+                "audio" -> {
+                    // audio <peer> <frames>: 20 ms frames whose bytes count up; "forever" runs until stopped.
+                    val peer = parts[1]
+                    val frames = parts[2]
+                    val src = object : java.io.InputStream() {
+                        var sent = 0
+                        override fun read(): Int = throw UnsupportedOperationException()
+                        override fun read(b: ByteArray, off: Int, len: Int): Int {
+                            if (frames != "forever" && sent >= frames.toInt()) return -1
+                            if (frames == "forever") Thread.sleep(20)
+                            val n = minOf(len, 3840)
+                            for (i in 0 until n) b[off + i] = (sent + i).toByte()
+                            sent++
+                            return n
+                        }
+                    }
+                    Thread {
+                        val code = try {
+                            node.streamAudio(peer, src, 48000, 2)
+                            "done"
+                        } catch (e: RemoteError) {
+                            e.code
+                        } catch (e: Exception) {
+                            "error"
+                        }
+                        emit("AUDIOEND $code")
+                    }.start()
+                    emit("OK")
+                }
                 "quit" -> break
                 else -> emit("ERR unknown command")
             }

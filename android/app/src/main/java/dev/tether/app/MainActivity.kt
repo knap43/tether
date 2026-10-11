@@ -140,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         renderComputers(node)
         renderClipboard(node)
         renderNotifications(node)
+        renderAudio()
         renderFiles(node)
         renderBackground()
         renderAppearance()
@@ -226,6 +227,11 @@ class MainActivity : AppCompatActivity() {
                         },
                         ui.chip("Commands", R.drawable.ic_terminal) {
                             startActivity(Intent(this, CommandsActivity::class.java).putExtra(CommandsActivity.EXTRA_PEER, p.id))
+                        },
+                        if (PhoneAudio.streamingTo == p.id) {
+                            ui.chip("Stop audio", R.drawable.ic_volume_off) { PhoneAudio.stop(this) }
+                        } else {
+                            ui.chip("Phone audio", R.drawable.ic_volume) { PhoneAudio.start(this, p.id) }
                         },
                     ),
                 )
@@ -369,6 +375,18 @@ class MainActivity : AppCompatActivity() {
                 node.settings.forwardNotifications = it
                 node.settings.save()
             },
+        )
+    }
+
+    private fun renderAudio() {
+        content.addView(ui.section("Audio"))
+        val card = ui.card(content)
+        card.addView(
+            ui.switchRow(
+                "Silence this phone while streaming",
+                "“Play audio here” on a computer sends what this phone plays to it",
+                PhoneAudio.silencePhone(this),
+            ) { PhoneAudio.setSilencePhone(this, it) },
         )
     }
 

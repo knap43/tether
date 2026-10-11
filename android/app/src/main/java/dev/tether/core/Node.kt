@@ -59,6 +59,9 @@ sealed class NodeEvent {
     data class Notification(val from: String, val fromName: String, val title: String, val text: String) : NodeEvent()
     data class MediaUpdate(val from: String, val fromName: String, val state: MediaState) : NodeEvent()
     data class TransferProgress(val info: TransferInfo) : NodeEvent()
+
+    /** A computer asks us to start or stop streaming this phone's audio to it. */
+    data class AudioControl(val from: String, val fromName: String, val on: Boolean) : NodeEvent()
 }
 
 class PairState(val initiator: Boolean) {
@@ -378,6 +381,7 @@ class Node(
                         platform.onEvent(NodeEvent.StatusChanged)
                     }
                     "media_update" -> platform.onEvent(NodeEvent.MediaUpdate(s.peerId, s.name, MediaState.parse(msg)))
+                    "audio_ctl" -> platform.onEvent(NodeEvent.AudioControl(s.peerId, s.name, msg.bool("on") == true))
                     "notify" -> {
                         val title = msg.str("title") ?: throw RemoteError("bad_request")
                         platform.onEvent(NodeEvent.Notification(s.peerId, s.name, title.take(200), (msg.str("text") ?: "").take(4000)))

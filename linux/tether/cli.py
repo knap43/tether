@@ -58,10 +58,12 @@ def cmd_status(paths, args):
     print(f"This device: {st['name']} [{st['id'][:8]}]")
     print(f"Clipboard:   {'on' if st['clipboard'] else 'off'} ({st['clipboard_backend']})")
     print(f"Media:       {'on' if st.get('media', True) else 'off'} (the phone controls players here)")
+    print(f"Phone audio: {'on' if st.get('phone_audio', True) else 'off'} (the phone may play its sound here)")
     print(f"Downloads:   {st['download_dir']}")
     print("Paired devices:")
     for d in st["devices"] or []:
-        print(f"  {'●' if d['connected'] else '○'} {short(d)}{'  connected' if d['connected'] else ''}")
+        audio = "  · playing audio here" if d.get("audio") == "on" else ""
+        print(f"  {'●' if d['connected'] else '○'} {short(d)}{'  connected' if d['connected'] else ''}{audio}")
     if not st["devices"]:
         print("  (none — run `tether pair`)")
     if st["pending"]:
@@ -269,6 +271,12 @@ def cmd_notify(paths, args):
     print("notified " + ", ".join(res["sent"]))
 
 
+def cmd_audio(paths, args):
+    Ctl(paths).call("phone_audio", device=args.device, on=args.state == "on")
+    if args.state == "on":
+        print("asked the phone to stream its audio here — accept on the phone if it asks")
+
+
 def cmd_command(paths, args):
     ctl = Ctl(paths)
     if args.action == "add":
@@ -452,6 +460,11 @@ def main(argv=None):
     p.add_argument("text", nargs="?")
     p.set_defaults(fn=cmd_notify)
 
+    p = sub.add_parser("audio", help="play the phone's audio on this computer")
+    p.add_argument("state", choices=["on", "off"])
+    p.add_argument("-d", "--device")
+    p.set_defaults(fn=cmd_audio)
+
     p = sub.add_parser("command", help="commands the phone may run here")
     p.add_argument("action", choices=["list", "add", "remove"])
     p.add_argument("name", nargs="?")
@@ -464,7 +477,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_wol)
 
     p = sub.add_parser("set", help="change a setting: name, clipboard, download_dir, scan_interval, "
-                                   "remote_shell, command_timeout, notifications, media")
+                                   "remote_shell, command_timeout, notifications, media, phone_audio")
     p.add_argument("key")
     p.add_argument("value")
     p.set_defaults(fn=cmd_set)

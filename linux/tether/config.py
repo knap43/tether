@@ -71,6 +71,7 @@ DEFAULTS = {
     "notifications": True,
     "notif_muted": [],
     "media": True,
+    "phone_audio": True,
 }
 
 

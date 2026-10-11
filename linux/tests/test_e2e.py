@@ -397,6 +397,56 @@ async def main(root: Path):
     print("ok  transfer progress + cancel (both directions)")
     A.subscribers.clear()
 
+    # --- phone audio: B streams PCM to A, A stops it
+    class FakeSink:
+        made = []
+
+        def __init__(self, rate, channels, title):
+            self.data, self.closed = bytearray(), False
+            FakeSink.made.append(self)
+
+        def write(self, data):
+            self.data.extend(data)
+
+        async def close(self):
+            self.closed = True
+
+    A.audio_sink = FakeSink
+    pcm = os.urandom(3840 * 10)
+
+    async def finite():
+        for i in range(0, len(pcm), 3840):
+            yield pcm[i : i + 3840]
+
+    await sb.request({"t": "audio", "rate": 48000, "channels": 2, "format": "s16le"}, upload=finite())
+    await until(lambda: FakeSink.made and FakeSink.made[0].closed, what="audio stream end")
+    assert bytes(FakeSink.made[0].data) == pcm
+    assert A.sessions[B.identity.id].audio == "off"
+
+    async def endless():
+        while True:
+            await asyncio.sleep(0.02)
+            yield b"\0" * 3840
+
+    streaming = asyncio.ensure_future(sb.request({"t": "audio", "rate": 48000, "channels": 2, "format": "s16le"},
+                                                 upload=endless()))
+    await until(lambda: A.sessions[B.identity.id].audio == "on", what="audio on")
+    await A.set_phone_audio(B.identity.id, False)
+    try:
+        await asyncio.wait_for(streaming, 5)
+        raise AssertionError("stopped audio stream completed")
+    except ProtoError as e:
+        assert e.code == "cancelled", e
+    await until(lambda: FakeSink.made[1].closed, what="audio sink closed")
+    A.cfg["phone_audio"] = False
+    try:
+        await sb.request({"t": "audio", "rate": 48000, "channels": 2, "format": "s16le"}, upload=finite())
+        raise AssertionError("audio accepted while turned off")
+    except ProtoError as e:
+        assert e.code == "denied", e
+    A.cfg["phone_audio"] = True
+    print("ok  phone audio")
+
     # --- reconnect after drop
     sa.channel.close()
     await until(lambda: not A.is_connected(B.identity.id), what="drop")

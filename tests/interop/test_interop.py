@@ -305,6 +305,42 @@ async def main(root: Path, cp: str):
         assert not (root / "A" / "downloads" / "cancel-out.bin").exists()
         print("ok  transfer progress + cancel (Kotlin side)")
 
+        # --- phone audio: the Kotlin core streams PCM, the daemon plays it and can stop it
+        class Sink:
+            made = []
+
+            def __init__(self, rate, channels, title):
+                self.data, self.closed = bytearray(), False
+                Sink.made.append(self)
+
+            def write(self, data):
+                self.data.extend(data)
+
+            async def close(self):
+                self.closed = True
+
+        A.audio_sink = Sink
+        await k.cmd(f"audio {aid} 5")
+        assert (await k.expect("AUDIOEND")) == "AUDIOEND done"
+        expect_pcm = b"".join(bytes((f + i) & 0xFF for i in range(3840)) for f in range(5))
+        while not (Sink.made and Sink.made[0].closed):
+            await asyncio.sleep(0.05)
+        assert bytes(Sink.made[0].data) == expect_pcm
+        await A.set_phone_audio(kid, True) if shutil.which("pacat") else await A.sessions[kid].channel.send(
+            {"t": "audio_ctl", "on": True})
+        assert (await k.expect("AUDIOCTL")) == "AUDIOCTL true"
+        await k.cmd(f"audio {aid} forever")
+        while A.sessions[kid].audio != "on":
+            await asyncio.sleep(0.05)
+        await A.set_phone_audio(kid, False)
+        assert (await k.expect("AUDIOEND")) == "AUDIOEND cancelled"
+        assert (await k.expect("AUDIOCTL")) == "AUDIOCTL false"
+        A.cfg["phone_audio"] = False
+        await k.cmd(f"audio {aid} forever")
+        assert (await k.expect("AUDIOEND")) == "AUDIOEND denied"
+        A.cfg["phone_audio"] = True
+        print("ok  phone audio (Kotlin side)")
+
         # --- wake-on-LAN: the computer shares its network cards; the phone sends magic packets
         import socket as _socket
         import sys as _sys
