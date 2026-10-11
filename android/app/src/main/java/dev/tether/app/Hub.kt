@@ -63,17 +63,35 @@ object Hub {
 
 object Notifications {
     const val CH_SERVICE = "service"
+    const val CH_SERVICE_HIDDEN = "service_hidden"
     const val CH_EVENTS = "events"
     const val CH_REMOTE = "remote"
     const val CH_MEDIA = "media"
     const val CH_TRANSFERS = "transfers"
     const val ID_SERVICE = 1
     private var nextId = 100
+    private const val PREFS = "notifications"
+    private const val KEY_SHOW_STATUS = "show_status"
+
+    /** Whether the persistent "Connected to …" notification is shown. The service runs either way. */
+    fun statusVisible(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SHOW_STATUS, true)
+
+    fun setStatusVisible(context: Context, visible: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SHOW_STATUS, visible).apply()
+    }
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(
             NotificationChannel(CH_SERVICE, "Connection status", NotificationManager.IMPORTANCE_MIN).apply {
+                setShowBadge(false)
+            },
+        )
+        // Android requires a notification for the foreground service; posting it to a muted
+        // channel keeps the service alive without anything appearing in the shade.
+        nm.createNotificationChannel(
+            NotificationChannel(CH_SERVICE_HIDDEN, "Connection status (hidden)", NotificationManager.IMPORTANCE_NONE).apply {
                 setShowBadge(false)
             },
         )

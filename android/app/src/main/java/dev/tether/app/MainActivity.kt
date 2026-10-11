@@ -332,6 +332,16 @@ class MainActivity : AppCompatActivity() {
     private fun renderNotifications(node: Node) {
         content.addView(ui.section("Notifications"))
         val card = ui.card(content)
+        card.addView(
+            ui.switchRow(
+                "Connection status notification",
+                "Tether keeps running in the background either way",
+                Notifications.statusVisible(this),
+            ) {
+                Notifications.setStatusVisible(this, it)
+                TetherService.refreshNotification(this, force = true)
+            },
+        )
         if (!NotifListener.enabled(this)) {
             card.addView(
                 ui.row(

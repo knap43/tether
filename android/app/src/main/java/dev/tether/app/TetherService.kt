@@ -202,12 +202,13 @@ class TetherService : Service() {
                 context, 1, Intent(context, ClipboardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE,
             )
-            val b = Notification.Builder(context, Notifications.CH_SERVICE)
+            val channel = if (Notifications.statusVisible(context)) Notifications.CH_SERVICE else Notifications.CH_SERVICE_HIDDEN
+            val b = Notification.Builder(context, channel)
                 .setSmallIcon(R.drawable.ic_stat)
                 .setColor(context.getColor(R.color.md_primary))
                 .setContentTitle("Tether")
                 .setContentText(text)
-                .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setContentIntent(Notifications.openApp(context))
             if (connected.isNotEmpty()) {
                 b.addAction(Notification.Action.Builder(null, "Send clipboard", clipIntent).build())
@@ -215,10 +216,16 @@ class TetherService : Service() {
             return b.build()
         }
 
-        fun refreshNotification(context: Context) {
+        /**
+         * Updates the status notification in place. If the user swiped it away, it stays gone
+         * until [force] is set (e.g. when they turn it back on in the app).
+         */
+        fun refreshNotification(context: Context, force: Boolean = false) {
             if (Hub.node == null) return
             Hub.runOnMain {
                 val nm = context.getSystemService(NotificationManager::class.java)
+                val showing = nm?.activeNotifications?.any { it.id == Notifications.ID_SERVICE } == true
+                if (!showing && !force) return@runOnMain
                 try {
                     nm?.notify(Notifications.ID_SERVICE, buildNotification(context))
                 } catch (e: SecurityException) {
