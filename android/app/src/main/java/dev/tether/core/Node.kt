@@ -1020,17 +1020,31 @@ class Node(
         val before = scanLock.withLock {
             if (!idx.matchesDisk(a.rel)) return false
             if (a.action == SyncAction.CONFLICT) {
-                var name = conflictName(a.rel)
+                // Named after the losing version's own mtime, so every device that settles this
+                // conflict picks the same name; an identical copy already there makes ours redundant.
+                val mine = idx.files[a.rel]
+                val first = if (mine != null) conflictName(a.rel, mine.m) else conflictName(a.rel)
+                var name = first
                 var i = 1
+                var duplicate = false
                 while (File(idx.root, name).exists()) {
-                    val c = conflictName(a.rel)
-                    val dot = c.lastIndexOf('.').takeIf { it > c.lastIndexOf('/') + 1 } ?: c.length
-                    name = c.substring(0, dot) + "-$i" + c.substring(dot)
+                    val existing = File(idx.root, name)
+                    if (mine?.h != null && existing.isFile && runCatching { sha256File(existing) }.getOrNull() == mine.h) {
+                        duplicate = true
+                        break
+                    }
+                    val dot = first.lastIndexOf('.').takeIf { it > first.lastIndexOf('/') + 1 } ?: first.length
+                    name = first.substring(0, dot) + "-$i" + first.substring(dot)
                     i++
                 }
-                if (!target.renameTo(File(idx.root, name))) throw IOException("cannot rename ${a.rel}")
+                if (duplicate) {
+                    if (!target.delete()) throw IOException("cannot delete ${a.rel}")
+                    platform.log("sync ${idx.id}: conflict copy of ${a.rel} already here")
+                } else {
+                    if (!target.renameTo(File(idx.root, name))) throw IOException("cannot rename ${a.rel}")
+                    platform.log("sync ${idx.id}: conflict, kept local copy as $name")
+                }
                 idx.files.remove(a.rel)
-                platform.log("sync ${idx.id}: conflict, kept local copy as $name")
             }
             diskState(target)
         }

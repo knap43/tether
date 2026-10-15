@@ -96,14 +96,20 @@ class DavServer:
 
     # -- helpers -------------------------------------------------------------
 
-    def devices(self) -> dict:
-        out = {}
-        for s in self.node.connected():
-            label = re.sub(r"[/\\\x00-\x1f]", "_", s.name).strip() or "device"
-            if label in out:
-                label = f"{label} ({s.peer_id[:6]})"
-            out[label] = s
+    def labels(self) -> dict[str, str]:
+        """URL segment for every paired device: its name, made unique. Stable while it's offline."""
+        out: dict[str, str] = {}
+        for pid, p in sorted(self.node.peers.peers.items()):
+            label = re.sub(r"[/\\\x00-\x1f]", "_", p.get("name") or "").strip() or "device"
+            if label in out.values() or label == SHORTCUT:
+                label = f"{label} ({pid[:6]})"
+            out[pid] = label
         return out
+
+    def devices(self) -> dict:
+        """Connected devices by URL segment."""
+        labels = self.labels()
+        return {labels[s.peer_id]: s for s in self.node.connected() if s.peer_id in labels}
 
     async def mount(self, dev: str) -> Mount | None:
         if dev == SHORTCUT:
@@ -155,9 +161,10 @@ class DavServer:
                 return await self.root(request)
             mnt = await self.mount(parts[0])
             if mnt is None:
-                if parts[0] == SHORTCUT and len(parts) == 1 and request.method == "PROPFIND":
-                    # Nothing connected: an empty folder keeps the bookmark mountable.
-                    return multistatus([response_xml(self.href(SHORTCUT), SHORTCUT, True, 0, 0)])
+                known = parts[0] == SHORTCUT or parts[0] in self.labels().values()
+                if known and len(parts) == 1 and request.method == "PROPFIND":
+                    # Not connected: an empty folder keeps the bookmark mountable.
+                    return multistatus([response_xml(self.href(parts[0]), parts[0], True, 0, 0)])
                 raise web.HTTPNotFound()
             vpath = mnt.prefix + "/" + "/".join(parts[1:])
             if mnt.prefix:

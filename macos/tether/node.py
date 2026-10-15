@@ -719,9 +719,14 @@ class Node:
             if not idx.matches_disk(rel):
                 return False
             if action == "conflict":
-                cname = sync_conflict_name(idx.root, rel)
-                os.rename(target, os.path.join(idx.root, cname))
-                log.info("sync %s: conflict, kept local copy as %s", idx.id, cname)
+                mine = idx.files.get(rel) or {}
+                cname = sync_conflict_name(idx.root, rel, mine.get("m"), mine.get("h"))
+                if cname is None:  # another device already made this very copy
+                    os.remove(target)
+                    log.info("sync %s: conflict copy of %s already here", idx.id, rel)
+                else:
+                    os.rename(target, os.path.join(idx.root, cname))
+                    log.info("sync %s: conflict, kept local copy as %s", idx.id, cname)
                 idx.files.pop(rel, None)
             before = disk_state(target)
 
@@ -1014,13 +1019,20 @@ class Node:
         }
 
 
-def sync_conflict_name(root, rel: str) -> str:
-    from .sync import conflict_name
+def sync_conflict_name(root, rel: str, mtime_ms: int | None = None, sha: str | None = None) -> str | None:
+    """Where the losing copy goes. Named after that version's own mtime, so every device that
+    settles the same conflict picks the same name; None if an identical copy is already there."""
+    from .sync import conflict_name, sha256_file
 
-    name = conflict_name(rel)
-    i = 1
-    while os.path.lexists(os.path.join(root, name)):
-        stem, ext = os.path.splitext(conflict_name(rel))
+    first = conflict_name(rel, mtime_ms / 1000 if mtime_ms else None)
+    name, i = first, 1
+    while os.path.lexists(path := os.path.join(root, name)):
+        try:
+            if sha and os.path.isfile(path) and sha256_file(path) == sha:
+                return None
+        except OSError:
+            pass
+        stem, ext = os.path.splitext(first)
         name = f"{stem}-{i}{ext}"
         i += 1
     return name

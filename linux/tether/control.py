@@ -137,6 +137,10 @@ class ControlServer:
             if key == "phone_audio":
                 await n.phone_audio_setting_changed()
             return None
+        if cmd == "sidebar":
+            if req.get("device") is not None:
+                n.set_sidebar(n_resolve(n, req["device"]), bool(req.get("on", True)))
+            return {"devices": [{"id": i, "name": n.peers.get(i)["name"]} for i in n.sidebar_ids()]}
         if cmd == "share_add":
             shares = dict(n.cfg["shares"])
             path = os.path.expanduser(req["path"])

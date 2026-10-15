@@ -70,8 +70,6 @@ mkdir -p "$scripts"
 cp "$here/nautilus/Send to Phone" "$scripts/"
 chmod +x "$scripts/Send to Phone"
 
-sleep 1
-"$bin/tether" mount --bookmark --no-open >/dev/null 2>&1 || true
 
 if systemctl is-active --quiet firewalld 2>/dev/null; then
     say "firewalld is active; opening Tether's ports"

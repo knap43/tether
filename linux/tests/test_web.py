@@ -80,6 +80,30 @@ async def main(root: Path):
         assert r.status == 201 and (lap_share / "from-pc.txt").read_bytes() == b"pc"
     print("ok  the phone and the PC browse the laptop")
 
+    # --- the Files sidebar on the PC: the phone by name, the laptop on request, renames followed
+    bm = PC.paths.bookmarks_file
+    root_url = PC.dav_root()
+
+    def tether_lines():
+        return [l for l in bm.read_text().splitlines() if l.startswith(root_url)] if bm.exists() else []
+
+    assert tether_lines() == [f"{root_url}PH/ PH"], tether_lines()
+    bm.write_text("file:///home/me/Music Music\n" + bm.read_text() + "dav://127.0.0.1:47292/oldtoken/Phone/ Phone (Tether)\n")
+    PC.set_sidebar(lap, True)
+    lines = bm.read_text().splitlines()
+    assert lines == ["file:///home/me/Music Music", f"{root_url}PH/ PH", f"{root_url}LAP/ LAP"], lines
+    LAP.cfg["name"] = "ThinkPad"
+    PC.sessions[lap].channel.close()
+    await until(lambda: not PC.is_connected(lap) and not LAP.is_connected(PC.identity.id), what="laptop drop")
+    lo, hi = (PC, LAP) if PC.identity.id < lap else (LAP, PC)
+    await lo._try_connect(hi.identity.id, "127.0.0.1", 49391 if hi is LAP else 49291)
+    await until(lambda: f"{root_url}ThinkPad/ ThinkPad" in tether_lines(), what="sidebar follows a rename")
+    async with aiohttp.ClientSession() as http:
+        r = await http.request("PROPFIND", f"{root_url}ThinkPad/".replace("dav://", "http://"), headers={"Depth": "1"})
+        assert r.status == 207 and "Home" in await r.text()
+    assert [d["sidebar"] for d in PC.status()["devices"] if d["id"] == lap] == [True]
+    print("ok  Files sidebar: devices by name, chosen ones only, renames followed, other bookmarks kept")
+
     # --- reconnect after a drop, without the PC
     for sess in list(PC.connected()):
         sess.channel.close()
