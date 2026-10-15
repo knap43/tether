@@ -476,10 +476,10 @@ class Node:
         self.sync_bookmarks()
         s.trusted = True
         self.untrusted.discard(s)
-        old = self.sessions.get(s.peer_id)
-        if old is not None and old is not s:
-            old.channel.close()
-        self.sessions[s.peer_id] = s
+        # Both sides may have dialled; the shared rule keeps the same session on each end.
+        if not self._register(s):
+            s.channel.close()
+            return
         by = (self.peers.get(introducer) or {}).get("name") if introducer else None
         log.info("paired with %s%s", s.name, f" (introduced by {by})" if by else "")
         self.emit({"ev": "paired", "id": s.peer_id, "name": s.name, "introduced_by": by})
