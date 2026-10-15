@@ -383,7 +383,12 @@ async def main(root: Path, cp: str):
         l_share = root / "l_share"
         l_share.mkdir()
         (l_share / "notes.txt").write_text("laptop")
-        L = make_node(root, "L", 49591, {"shares": {"Laptop": str(l_share)}})
+        # The laptop gets the lower id: then it is the one that would dial, and it doesn't know the
+        # phone's port (the phone dialled A), so the phone must dial on Trust. The other order is easy.
+        for attempt in range(64):
+            L = make_node(root, f"L{attempt}", 49591, {"name": "L", "shares": {"Laptop": str(l_share)}})
+            if L.identity.id < kid:
+                break
         await L.start(with_dav=False, with_discovery=False)
         lid = L.identity.id
         s = await A.start_pairing(addr="127.0.0.1:49591")

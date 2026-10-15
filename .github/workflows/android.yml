@@ -51,7 +51,12 @@ jobs:
           unzip -q /tmp/kotlinc.zip -d /tmp
           export PATH=/tmp/kotlinc/bin:$PATH
           pip install --quiet aiohttp cryptography
-          sh tests/interop/run.sh
+          set -o pipefail
+          if ! sh tests/interop/run.sh 2>&1 | tee /tmp/interop.log; then
+            # Readable through the API even where the log download isn't.
+            echo "::error title=Interop test failed::$(tail -c 6000 /tmp/interop.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

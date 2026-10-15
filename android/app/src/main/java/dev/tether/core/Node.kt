@@ -524,16 +524,17 @@ class Node(
         val intro = intros.forget(s.peerId)
         s.trusted = true
         untrusted.remove(s)
-        synchronized(this) {
-            val old = sessions[s.peerId]
-            if (old != null && old !== s) old.channel.close()
-            sessions[s.peerId] = s
-        }
+        // Both sides may have dialled; the shared rule keeps the same session on each end.
+        val kept = register(s)
         val host = if (s.isClient) s.addr?.hostString else intro?.host
         val port = if (s.isClient) s.addr?.port else intro?.port
         peers.add(PeerInfo(s.peerId, s.name, Crypto.b64(s.hs.peerSpki), s.type, host, port))
         val by = introducer?.let { peers.get(it)?.name }
         platform.log("paired with ${s.name}" + (by?.let { " (introduced by $it)" } ?: ""))
+        if (!kept) {
+            s.channel.close() // the other connection to this peer already won
+            return
+        }
         platform.onEvent(NodeEvent.Paired(s.peerId, s.name))
         pool.execute { onTrusted(s) }
     }
@@ -568,9 +569,10 @@ class Node(
         intros.put(i.copy(accepted = true))
         platform.onEvent(NodeEvent.StatusChanged)
         val live = untrusted.firstOrNull { it.peerId == id && !it.channel.closed }
+        // The user just said yes: dial now whichever id is lower, rather than wait for the other side.
         when {
             live != null -> sendIntroOk(live)
-            i.host != null && i.port != null && identity.id < id -> tryConnect(id, i.host, i.port)
+            i.host != null && i.port != null -> tryConnect(id, i.host, i.port)
         }
     }
 
