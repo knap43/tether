@@ -24,10 +24,13 @@ async def main(root: Path):
     ph_share.mkdir()
     (ph_share / "photo.txt").write_text("from the phone")
 
+    lap_share = root / "lap_share"
+    lap_share.mkdir()
+    (lap_share / "thesis.odt").write_text("from the laptop")
     PC = make_node(root, "PC", 49291, {})
-    LAP = make_node(root, "LAP", 49391, {})
+    LAP = make_node(root, "LAP", 49391, {"shares": {"Home": str(lap_share)}})
     PH = make_node(root, "PH", 49491, {"device_type": "phone", "shares": {"Internal": str(ph_share)}})
-    await PC.start(with_dav=False, with_discovery=False)
+    await PC.start(with_dav=True, with_discovery=False)
     await LAP.start(with_dav=True, with_discovery=False)
     await PH.start(with_dav=False, with_discovery=False)
     lap, ph = LAP.identity.id, PH.identity.id
@@ -61,6 +64,21 @@ async def main(root: Path):
     f.write_bytes(b"x" * 100_000)
     await LAP.send_file(ph, str(f))
     print("ok  laptop browses, mounts, sends to and shares a clipboard with the phone")
+
+    # --- the laptop's files, from the phone and from the PC
+    names = [e["name"] for e in (await PH.sessions[lap].channel.request({"t": "fs_list", "path": "/Home"}))["entries"]]
+    assert names == ["thesis.odt"], names
+    d = next(d for d in PC.status()["devices"] if d["id"] == lap)
+    assert d["dav_url"] and d["dav_url"].endswith("/LAP/"), d
+    http_url = d["dav_url"].replace("dav://", "http://")
+    async with aiohttp.ClientSession() as http:
+        r = await http.request("PROPFIND", http_url + "Home/", headers={"Depth": "1"})
+        assert r.status == 207 and "thesis.odt" in await r.text()
+        r = await http.get(http_url + "Home/thesis.odt")
+        assert await r.text() == "from the laptop"
+        r = await http.put(http_url + "Home/from-pc.txt", data=b"pc")
+        assert r.status == 201 and (lap_share / "from-pc.txt").read_bytes() == b"pc"
+    print("ok  the phone and the PC browse the laptop")
 
     # --- reconnect after a drop, without the PC
     for sess in list(PC.connected()):

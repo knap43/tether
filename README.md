@@ -76,7 +76,7 @@ Pair a second computer with the first, and the first **introduces** it to your p
 |---|---|---|
 | Clipboard | Automatic | Computer → phone automatic; phone → computer via the app, the **Send clipboard** Quick Settings tile, the notification button, or **Send to computer** in the text-selection menu (or automatic — see below) |
 | Send files | Right-click → Scripts → Send to Phone; top-bar menu → Send files…; `tether send FILE…` | Share sheet → **Send to computer**; **Send files** in the app |
-| Browse | Files sidebar → **Phone (Tether)**, or `tether mount` — opens straight into the phone's storage | **Browse** next to the computer in the app (open, download, upload, rename, delete), or Files app → your computer's name |
+| Browse | Files sidebar → **Phone (Tether)**, or `tether mount` — opens straight into the phone's storage. Another computer: **Browse Files** beside it in the Tether window, or `tether mount laptop` | **Browse** next to each computer in the app (open, download, upload, rename, delete), or Files app → the computer's name |
 | Sync a folder | `tether sync add camera ~/Pictures/Phone` | **Sync a folder** → pick the folder → name it `camera` |
 
 A sync folder must have the **same name** on both devices. Conflicting edits keep both versions: the older one is renamed `name.conflict-YYYYmmdd-HHMMSS.ext` and synced too. Shared folders for browsing are set with `tether share add NAME PATH` (default: your home folder) and **Share a folder** in the app (default: internal storage).

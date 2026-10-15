@@ -13,6 +13,7 @@ import shutil
 import signal
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from . import clipboard
 from .channel import CHUNK, Channel, StreamAborted
@@ -1211,10 +1212,14 @@ class Node:
 
     def status(self) -> dict:
         devices = []
+        dav = getattr(self, "dav", None)
+        dav_root = f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/"
+        labels = {s.peer_id: label for label, s in dav.devices().items()} if dav else {}
         for pid, p in self.peers.peers.items():
             s = self.sessions.get(pid)
             devices.append({"id": pid, "name": p["name"], "type": p.get("type"), "paired": True,
                             "connected": self.is_connected(pid),
+                            "dav_url": dav_root + quote(labels[pid]) + "/" if pid in labels else None,
                             "battery": s.battery if s and self.is_connected(pid) else None,
                             "audio": self._audio_state(s) if s and self.is_connected(pid) else "off"})
         pending = [
@@ -1235,7 +1240,7 @@ class Node:
             "clipboard": self.cfg["clipboard"],
             "clipboard_backend": self.clip.name,
             "dav_url": f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/Phone/",
-            "dav_root": f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/",
+            "dav_root": dav_root,
             "shares": self.cfg["shares"],
             "sync": self.cfg["sync"],
             "download_dir": str(self.cfg.download_dir),
