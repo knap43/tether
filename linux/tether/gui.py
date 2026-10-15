@@ -221,6 +221,9 @@ class TetherWindow(Adw.ApplicationWindow):
             ("notify", self.ask_notification),
             ("unpair", self.confirm_unpair),
             ("browse", lambda _id: self.browse(_id)),
+            ("sidebar-add", lambda _id: self.call("sidebar", device=_id, on=True, ok_toast="Added to the Files sidebar")),
+            ("sidebar-remove", lambda _id: self.call("sidebar", device=_id, on=False,
+                                                     ok_toast="Removed from the Files sidebar")),
         ):
             act = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
             act.connect("activate", lambda _a, v, fn=fn: fn(v.get_string()))
@@ -388,6 +391,10 @@ class TetherWindow(Adw.ApplicationWindow):
                 menu.append("Send Clipboard", f"win.send-clip::{d['id']}")
                 menu.append("Send Notification…", f"win.notify::{d['id']}")
                 self._accept_drops(row, d["id"])
+            if d.get("sidebar"):
+                menu.append("Remove from Files Sidebar", f"win.sidebar-remove::{d['id']}")
+            else:
+                menu.append("Show in Files Sidebar", f"win.sidebar-add::{d['id']}")
             menu.append("Unpair…", f"win.unpair::{d['id']}")
             more = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, valign=Gtk.Align.CENTER,
                                   tooltip_text="More")
@@ -646,8 +653,8 @@ class TetherWindow(Adw.ApplicationWindow):
         open_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         open_row.connect("activated", lambda *_: self.browse())
         browse.add(open_row)
-        side_row = Adw.ActionRow(title="Show in the Files sidebar", subtitle="Adds a “Phone (Tether)” bookmark")
-        side_row.add_suffix(text_button("Add", self.add_bookmark, "flat"))
+        side_row = Adw.ActionRow(title="Files sidebar",
+                                 subtitle="Phones appear there by name. To add another device, use its ⋮ menu under Devices.")
         browse.add(side_row)
         page.add(browse)
 
@@ -704,13 +711,6 @@ class TetherWindow(Adw.ApplicationWindow):
 
     def change_download_dir(self):
         self.pick_folder("Save Received Files In", lambda p: self.call("set", key="download_dir", value=p))
-
-    def add_bookmark(self):
-        from .cli import add_bookmark
-
-        if self.status:
-            add_bookmark(self.status["dav_url"])
-            self.toast("Added to the Files sidebar")
 
     def add_share(self):
         def then(path):

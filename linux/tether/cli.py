@@ -338,25 +338,16 @@ def cmd_set(paths, args):
     Ctl(paths).call("set", key=args.key, value=value)
 
 
-def add_bookmark(url: str) -> None:
-    """Adds the phone bridge to the Files sidebar (replacing an older Tether entry)."""
-    bm = Path(os.environ.get("XDG_CONFIG_HOME") or "~/.config").expanduser() / "gtk-3.0" / "bookmarks"
-    bm.parent.mkdir(parents=True, exist_ok=True)
-    lines = bm.read_text().splitlines() if bm.exists() else []
-    lines = [l for l in lines if "(Tether)" not in l and not l.startswith(url)]
-    lines.append(f"{url} Phone (Tether)")
-    bm.write_text("\n".join(lines) + "\n")
-
-
-def refresh_bookmark(url: str) -> None:
-    """Points an existing “Phone (Tether)” bookmark at the current URL; adds none."""
-    bm = Path(os.environ.get("XDG_CONFIG_HOME") or "~/.config").expanduser() / "gtk-3.0" / "bookmarks"
-    try:
-        lines = bm.read_text().splitlines()
-    except OSError:
-        return
-    if any(l.endswith("(Tether)") and not l.startswith(url + " ") for l in lines):
-        add_bookmark(url)
+def cmd_sidebar(paths, args):
+    ctl = Ctl(paths)
+    if args.action in ("add", "remove"):
+        res = ctl.call("sidebar", device=args.device, on=args.action == "add")
+    else:
+        res = ctl.call("sidebar")
+    for d in res["devices"]:
+        print(d["name"])
+    if not res["devices"]:
+        print("No devices in the Files sidebar.")
 
 
 def cmd_mount(paths, args):
@@ -367,12 +358,17 @@ def cmd_mount(paths, args):
         d = next((d for d in st["devices"] if d["name"].lower() == want or d["id"].startswith(want)), None)
         if d is None:
             sys.exit(f"no paired device called {args.device}")
-        if not d.get("dav_url"):
+        if not d.get("dav_url") and not args.bookmark:
             sys.exit(f"{d['name']} isn't connected")
-        url = d["dav_url"]
-    if args.bookmark and not args.device:
-        add_bookmark(url)
-        print("Added “Phone (Tether)” to the Files sidebar.")
+        url = d.get("dav_url") or url
+    if args.bookmark:
+        phones = [d for d in st["devices"] if d.get("type") == "phone"]
+        target = d if args.device else (phones[0] if phones else None)
+        if target is None:
+            print("Pair a phone first; it then appears in the Files sidebar by itself.")
+        else:
+            Ctl(paths).call("sidebar", device=target["id"], on=True)
+            print(f"Added “{target['name']}” to the Files sidebar.")
     subprocess.run(["gio", "mount", url], check=False)
     if not args.no_open and shutil.which("xdg-open"):
         subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -403,8 +399,6 @@ def cmd_daemon(paths, args):
         node = Node(paths)
         await node.start(with_dav=not args.no_dav, with_discovery=not args.no_discovery)
         await ControlServer(node).start()
-        if not args.no_dav:
-            refresh_bookmark(node.status()["dav_url"])
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -506,6 +500,11 @@ def main(argv=None):
     p = sub.add_parser("mount", help="open the phone (or another device) in Files")
     p.add_argument("device", nargs="?", help="a paired device's name or id; default: the phone")
     p.add_argument("--bookmark", action="store_true", help="also add it to the Files sidebar")
+
+    p = sub.add_parser("sidebar", help="devices shown in the Files sidebar")
+    p.add_argument("action", nargs="?", choices=["list", "add", "remove"], default="list")
+    p.add_argument("device", nargs="?", help="a paired device's name or id")
+    p.set_defaults(fn=cmd_sidebar)
     p.add_argument("--no-open", action="store_true")
     p.set_defaults(fn=cmd_mount)
 
@@ -516,6 +515,8 @@ def main(argv=None):
         die("usage: tether share remove NAME")
     if args.cmd == "sync" and args.action == "add" and not (args.folder and args.path):
         die("usage: tether sync add FOLDER_ID PATH")
+    if args.cmd == "sidebar" and args.action != "list" and not args.device:
+        die(f"usage: tether sidebar {args.action} DEVICE")
     if args.cmd == "sync" and args.action == "remove" and not args.folder:
         die("usage: tether sync remove FOLDER_ID")
     args.fn(Paths(args.home), args)

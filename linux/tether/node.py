@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from . import clipboard
+from . import bookmarks, clipboard
 from .channel import CHUNK, Channel, StreamAborted
 from .config import Config, Introductions, Paths, PeerStore
 from .crypto import HandshakeError, Identity, b64d, b64e, handshake
@@ -231,6 +231,7 @@ class Node:
 
             self.dav = DavServer(self)
             await self.dav.start()
+            self.sync_bookmarks()
         self.spawn(self._scan_loop())
         self.spawn(self._reconnect_loop())
         self.spawn(self.media.watch())
@@ -272,6 +273,8 @@ class Node:
             if not self._register(s):
                 hs.framer.close()
                 return None
+            if self.peers.set_name(s.peer_id, s.name):
+                self.sync_bookmarks()  # renamed: the sidebar follows
             if is_client:
                 self.peers.set_addr(s.peer_id, addr, s.name)
             self.spawn(self._on_trusted(s))
@@ -468,6 +471,9 @@ class Node:
         if addr is None and intro and intro.get("addr"):
             addr = intro["addr"]
         self.peers.add(s.peer_id, s.name, b64e(s.hs.peer_spki), s.type, addr)
+        if s.type == "phone" and isinstance(self.cfg["sidebar"], list) and s.peer_id not in self.cfg["sidebar"]:
+            self.cfg["sidebar"] = self.cfg["sidebar"] + [s.peer_id]  # phones go in the sidebar by default
+        self.sync_bookmarks()
         s.trusted = True
         self.untrusted.discard(s)
         old = self.sessions.get(s.peer_id)
@@ -584,6 +590,9 @@ class Node:
         if not self.peers.remove(peer_id):
             raise ProtoError("not_found")
         self.intros.block(peer_id)  # so other devices don't bring it back
+        if isinstance(self.cfg["sidebar"], list) and peer_id in self.cfg["sidebar"]:
+            self.cfg["sidebar"] = [i for i in self.cfg["sidebar"] if i != peer_id]
+        self.sync_bookmarks()
         for f in self.paths.sync_dir.glob(f"base-{peer_id[:16]}-*.json"):
             f.unlink(missing_ok=True)
         self.emit_status()
@@ -843,9 +852,14 @@ class Node:
             if not idx.matches_disk(rel):
                 return False
             if action == "conflict":
-                cname = sync_conflict_name(idx.root, rel)
-                os.rename(target, os.path.join(idx.root, cname))
-                log.info("sync %s: conflict, kept local copy as %s", idx.id, cname)
+                mine = idx.files.get(rel) or {}
+                cname = sync_conflict_name(idx.root, rel, mine.get("m"), mine.get("h"))
+                if cname is None:  # another device already made this very copy
+                    os.remove(target)
+                    log.info("sync %s: conflict copy of %s already here", idx.id, rel)
+                else:
+                    os.rename(target, os.path.join(idx.root, cname))
+                    log.info("sync %s: conflict, kept local copy as %s", idx.id, cname)
                 idx.files.pop(rel, None)
             before = disk_state(target)
 
@@ -1195,6 +1209,43 @@ class Node:
             s.audio = "off"
             self.emit_status()
 
+    # -- the Files sidebar ---------------------------------------------------------
+
+    def dav_root(self) -> str:
+        return f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/"
+
+    def sidebar_ids(self) -> list[str]:
+        ids = self.cfg["sidebar"]
+        if not isinstance(ids, list):  # first run of this version: the phones, as before
+            ids = [pid for pid, p in self.peers.peers.items() if p.get("type") == "phone"]
+            self.cfg["sidebar"] = ids
+        return [i for i in ids if i in self.peers]
+
+    def sync_bookmarks(self) -> None:
+        """Writes one Files bookmark per chosen device, labelled with the device's name."""
+        dav = getattr(self, "dav", None)
+        if dav is None:
+            return
+        labels = dav.labels()
+        names = [self.peers.get(i)["name"] for i in self.sidebar_ids()]
+        wanted = []
+        for pid in self.sidebar_ids():
+            name = self.peers.get(pid)["name"]
+            shown = name if names.count(name) == 1 else f"{name} ({pid[:6]})"
+            wanted.append((self.dav_root() + quote(labels[pid]) + "/", shown))
+        try:
+            bookmarks.sync(self.paths.bookmarks_file, self.dav_root(), wanted)
+        except OSError as e:
+            log.warning("could not update the Files sidebar: %s", e)
+
+    def set_sidebar(self, peer_id: str, on: bool) -> None:
+        if peer_id not in self.peers:
+            raise ProtoError("not_found")
+        ids = [i for i in self.sidebar_ids() if i != peer_id] + ([peer_id] if on else [])
+        self.cfg["sidebar"] = ids
+        self.sync_bookmarks()
+        self.emit_status()
+
     # -- events / notifications -------------------------------------------------
 
     def emit(self, ev: dict) -> None:
@@ -1213,13 +1264,15 @@ class Node:
     def status(self) -> dict:
         devices = []
         dav = getattr(self, "dav", None)
-        dav_root = f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/"
+        dav_root = self.dav_root()
         labels = {s.peer_id: label for label, s in dav.devices().items()} if dav else {}
+        sidebar = set(self.sidebar_ids())
         for pid, p in self.peers.peers.items():
             s = self.sessions.get(pid)
             devices.append({"id": pid, "name": p["name"], "type": p.get("type"), "paired": True,
                             "connected": self.is_connected(pid),
                             "dav_url": dav_root + quote(labels[pid]) + "/" if pid in labels else None,
+                            "sidebar": pid in sidebar,
                             "battery": s.battery if s and self.is_connected(pid) else None,
                             "audio": self._audio_state(s) if s and self.is_connected(pid) else "off"})
         pending = [
@@ -1258,13 +1311,20 @@ class Node:
         }
 
 
-def sync_conflict_name(root, rel: str) -> str:
-    from .sync import conflict_name
+def sync_conflict_name(root, rel: str, mtime_ms: int | None = None, sha: str | None = None) -> str | None:
+    """Where the losing copy goes. Named after that version's own mtime, so every device that
+    settles the same conflict picks the same name; None if an identical copy is already there."""
+    from .sync import conflict_name, sha256_file
 
-    name = conflict_name(rel)
-    i = 1
-    while os.path.lexists(os.path.join(root, name)):
-        stem, ext = os.path.splitext(conflict_name(rel))
+    first = conflict_name(rel, mtime_ms / 1000 if mtime_ms else None)
+    name, i = first, 1
+    while os.path.lexists(path := os.path.join(root, name)):
+        try:
+            if sha and os.path.isfile(path) and sha256_file(path) == sha:
+                return None
+        except OSError:
+            pass
+        stem, ext = os.path.splitext(first)
         name = f"{stem}-{i}{ext}"
         i += 1
     return name

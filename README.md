@@ -34,7 +34,7 @@ cd linux
 ./install.sh
 ```
 
-This installs the daemon to `~/.local/lib/tether` with a `tether` command in `~/.local/bin`, enables the `tether` systemd user service, installs the GNOME Shell extension (a phone icon in the top bar), adds **Scripts → Send to Phone** to the Files right-click menu, and bookmarks **Phone (Tether)** in the Files sidebar. It asks for `sudo` only to install `python-cryptography` and `python-aiohttp`, and to open ports 47290/udp and 47291/tcp if a firewall is active.
+This installs the daemon to `~/.local/lib/tether` with a `tether` command in `~/.local/bin`, enables the `tether` systemd user service, installs the GNOME Shell extension (a phone icon in the top bar), and adds **Scripts → Send to Phone** to the Files right-click menu. Each phone you pair appears in the Files sidebar under its own name. It asks for `sudo` only to install `python-cryptography` and `python-aiohttp`, and to open ports 47290/udp and 47291/tcp if a firewall is active.
 
 On Wayland a newly installed extension takes effect after you log out and back in; then run `gnome-extensions enable tether@tether.local` if the installer couldn't.
 
@@ -76,7 +76,7 @@ Pair a second computer with the first, and the first **introduces** it to your p
 |---|---|---|
 | Clipboard | Automatic | Computer → phone automatic; phone → computer via the app, the **Send clipboard** Quick Settings tile, the notification button, or **Send to computer** in the text-selection menu (or automatic — see below) |
 | Send files | Right-click → Scripts → Send to Phone; top-bar menu → Send files…; `tether send FILE…` | Share sheet → **Send to computer**; **Send files** in the app |
-| Browse | Files sidebar → **Phone (Tether)**, or `tether mount` — opens straight into the phone's storage. Another computer: **Browse Files** beside it in the Tether window, or `tether mount laptop` | **Browse** next to each computer in the app (open, download, upload, rename, delete), or Files app → the computer's name |
+| Browse | Files sidebar → the phone's name, or `tether mount`. Another computer: **Browse Files** beside it in the Tether window, or `tether mount laptop`. To keep any device in the sidebar: **⋮ → Show in Files Sidebar** beside it, or `tether sidebar add laptop` (`tether sidebar` lists them, `tether sidebar remove NAME` takes one out) | **Browse** next to each computer in the app (open, download, upload, rename, delete), or Files app → the computer's name |
 | Sync a folder | `tether sync add camera ~/Pictures/Phone` | **Sync a folder** → pick the folder → name it `camera` |
 
 A sync folder must have the **same name** on both devices. Conflicting edits keep both versions: the older one is renamed `name.conflict-YYYYmmdd-HHMMSS.ext` and synced too. Shared folders for browsing are set with `tether share add NAME PATH` (default: your home folder) and **Share a folder** in the app (default: internal storage).
@@ -153,7 +153,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 ## Limits
 
 - The clipboard carries text and images (up to 16 MB), not files.
-- Sync is between two devices at a time per folder, and very large folders (tens of thousands of files) send sizeable indexes.
+- Sync works across any number of devices that use the same folder name, directly linked or through another device; very large folders (tens of thousands of files) send sizeable indexes.
 - Introductions come from Linux computers; a Mac neither makes nor accepts them yet, so pair it with the phone directly.
 - Phone audio is Linux only for now, and plays one phone at a time; latency is about a fifth of a second, growing to under half a second on a choppy network, so video on the phone may look slightly ahead of its sound.
 - Android's shared storage is case-insensitive; two files differing only in case on Linux will collide there.
@@ -162,7 +162,8 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 ```sh
 python3 linux/tests/test_e2e.py     # two Linux daemons: pairing, clipboard, send, browse, WebDAV, sync, commands, reconnect
-python3 linux/tests/test_web.py     # three daemons: a computer introduces a laptop and a phone; unpairing sticks
+python3 linux/tests/test_web.py     # three daemons: introductions, browsing every device, the Files sidebar
+python3 linux/tests/test_sync_web.py # folder sync among three devices, linked in a mesh and in a chain
 tests/interop/run.sh                # the Android app's Kotlin core against the Linux daemon (needs kotlinc)
 linux/tests/dbus/run.sh            # real D-Bus: desktop notifications via gdbus, media via playerctl (fake services)
 python3 linux/tests/test_parsers.py # parsers for playerctl, wpctl and gdbus output

@@ -38,11 +38,13 @@ class Paths:
         if base:
             b = Path(base).expanduser()
             self.config_dir, self.data_dir, self.runtime_dir = b / "config", b / "data", b / "run"
+            self.bookmarks_file = b / "gtk-bookmarks"
         else:
             self.config_dir = _xdg("XDG_CONFIG_HOME", "~/.config") / "tether"
             self.data_dir = _xdg("XDG_DATA_HOME", "~/.local/share") / "tether"
             rt = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/tether-{os.getuid()}"
             self.runtime_dir = Path(rt) / "tether"
+            self.bookmarks_file = _xdg("XDG_CONFIG_HOME", "~/.config") / "gtk-3.0" / "bookmarks"
         for d in (self.config_dir, self.data_dir, self.runtime_dir):
             d.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.config_file = self.config_dir / "config.json"
@@ -75,6 +77,7 @@ DEFAULTS = {
     "phone_audio": True,
     "phone_audio_volume": 1.0,
     "accept_introductions": True,
+    "sidebar": None,  # device ids shown in the Files sidebar; None until first set up
 }
 
 
@@ -132,6 +135,14 @@ class PeerStore:
     def remove(self, peer_id) -> bool:
         if self.peers.pop(peer_id, None) is None:
             return False
+        self.save()
+        return True
+
+    def set_name(self, peer_id, name) -> bool:
+        p = self.peers.get(peer_id)
+        if p is None or not name or p.get("name") == name:
+            return False
+        p["name"] = name
         self.save()
         return True
 
