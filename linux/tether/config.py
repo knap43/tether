@@ -48,6 +48,7 @@ class Paths:
         self.config_file = self.config_dir / "config.json"
         self.identity_file = self.data_dir / "identity.pem"
         self.peers_file = self.data_dir / "peers.json"
+        self.intros_file = self.data_dir / "introductions.json"
         self.sync_dir = self.data_dir / "sync"
         self.socket = self.runtime_dir / "ctl.sock"
 
@@ -73,6 +74,7 @@ DEFAULTS = {
     "media": True,
     "phone_audio": True,
     "phone_audio_volume": 1.0,
+    "accept_introductions": True,
 }
 
 
@@ -143,3 +145,51 @@ class PeerStore:
             if name:
                 p["name"] = name
             self.save()
+
+
+class Introductions:
+    """Devices a paired device vouched for, not yet trusted here, and devices never to admit that way.
+
+    pending: id -> {name, key (base64 spki), type, addr, by (introducer id), accepted}
+    blocked: ids we unpaired, that unpaired us, or whose introduction was declined; pairing
+             explicitly lifts the block.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        d = read_json(path, {})
+        self.pending: dict[str, dict] = d.get("pending", {})
+        self.blocked: set[str] = set(d.get("blocked", []))
+
+    def save(self) -> None:
+        atomic_write_json(self.path, {"pending": self.pending, "blocked": sorted(self.blocked)})
+
+    def get(self, peer_id):
+        return self.pending.get(peer_id)
+
+    def accepted(self, peer_id) -> bool:
+        e = self.pending.get(peer_id)
+        return bool(e and e.get("accepted"))
+
+    def add(self, peer_id, entry: dict) -> None:
+        self.pending[peer_id] = entry
+        self.save()
+
+    def set_addr(self, peer_id, addr) -> None:
+        e = self.pending.get(peer_id)
+        if e is not None and e.get("addr") != list(addr):
+            e["addr"] = list(addr)
+            self.save()
+
+    def block(self, peer_id) -> None:
+        self.pending.pop(peer_id, None)
+        self.blocked.add(peer_id)
+        self.save()
+
+    def forget(self, peer_id) -> dict | None:
+        """Drops any introduction and block for a device that is now paired."""
+        e = self.pending.pop(peer_id, None)
+        if e is not None or peer_id in self.blocked:
+            self.blocked.discard(peer_id)
+            self.save()
+        return e

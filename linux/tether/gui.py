@@ -220,7 +220,7 @@ class TetherWindow(Adw.ApplicationWindow):
             ("send-clip", self.send_clipboard),
             ("notify", self.ask_notification),
             ("unpair", self.confirm_unpair),
-            ("browse", lambda _id: self.browse()),
+            ("browse", lambda _id: self.browse(_id)),
         ):
             act = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
             act.connect("activate", lambda _a, v, fn=fn: fn(v.get_string()))
@@ -620,9 +620,12 @@ class TetherWindow(Adw.ApplicationWindow):
             "unpair", ok_toast=f"Unpaired {name}", device=device_id))
         dialog.present(self)
 
-    def browse(self):
-        if self.status:
-            self.open_uri(self.status["dav_url"])
+    def browse(self, device_id: str | None = None):
+        """Opens a device's shared folders in Files; without one, the phone shortcut."""
+        if not self.status:
+            return
+        d = next((d for d in self.status["devices"] if d["id"] == device_id), None)
+        self.open_uri(d["dav_url"] if d and d.get("dav_url") else self.status["dav_url"])
 
     # -- folders page -------------------------------------------------------------------
 

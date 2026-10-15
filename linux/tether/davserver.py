@@ -107,8 +107,9 @@ class DavServer:
 
     async def mount(self, dev: str) -> Mount | None:
         if dev == SHORTCUT:
-            conn = self.node.connected()
-            s = next((s for s in conn if s.type == "phone"), conn[0] if conn else None)
+            # Only a phone: on a computer linked to other computers, "Phone" must never
+            # quietly open one of them instead.
+            s = next((s for s in self.node.connected() if s.type == "phone"), None)
             if s is None:
                 return None
             shares = await self.shares(s)

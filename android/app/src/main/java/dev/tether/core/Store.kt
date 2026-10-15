@@ -148,6 +148,98 @@ class PeerStore(private val file: File) {
     }
 }
 
+/** A device a paired computer vouched for; trusted here once [accepted] and the direct handshake succeeds. */
+data class Introduction(
+    val id: String,
+    val name: String,
+    val key: String,
+    val type: String,
+    val host: String?,
+    val port: Int?,
+    val by: String,
+    val accepted: Boolean,
+)
+
+/**
+ * Introductions (introductions.json, same shape as the Linux daemon's): pending ones, and
+ * ids never to admit that way (unpaired, or declined); pairing explicitly lifts a block.
+ */
+class IntroStore(private val file: File) {
+    private val pending = LinkedHashMap<String, Introduction>()
+    private val blocked = LinkedHashSet<String>()
+
+    init {
+        if (file.exists()) runCatching {
+            val o = parseObj(file.readText())
+            o.obj("pending")?.forEach { (id, v) ->
+                val e = v as? JsonObject ?: return@forEach
+                val addr = e.arr("addr")
+                pending[id] = Introduction(
+                    id, e.str("name") ?: "?", e.str("key") ?: return@forEach, e.str("type") ?: "",
+                    addr?.getOrNull(0)?.asStr(), addr?.getOrNull(1)?.asLong()?.toInt(),
+                    e.str("by") ?: "", e.bool("accepted") == true,
+                )
+            }
+            o.arr("blocked")?.mapNotNull { it.asStr() }?.let { blocked.addAll(it) }
+        }
+    }
+
+    @Synchronized
+    fun all(): List<Introduction> = pending.values.toList()
+
+    @Synchronized
+    fun get(id: String) = pending[id]
+
+    @Synchronized
+    fun accepted(id: String) = pending[id]?.accepted == true
+
+    @Synchronized
+    fun isBlocked(id: String) = id in blocked
+
+    @Synchronized
+    fun put(i: Introduction) {
+        pending[i.id] = i
+        save()
+    }
+
+    @Synchronized
+    fun setAddr(id: String, host: String, port: Int) {
+        val i = pending[id] ?: return
+        if (i.host == host && i.port == port) return
+        pending[id] = i.copy(host = host, port = port)
+        save()
+    }
+
+    @Synchronized
+    fun block(id: String) {
+        pending.remove(id)
+        blocked.add(id)
+        save()
+    }
+
+    /** Drops any introduction and block for a device that is now paired. */
+    @Synchronized
+    fun forget(id: String): Introduction? {
+        val i = pending.remove(id)
+        if (i != null || blocked.remove(id)) save()
+        return i
+    }
+
+    private fun save() {
+        val o = mapOf(
+            "pending" to pending.mapValues { (_, i) ->
+                mapOf(
+                    "name" to i.name, "key" to i.key, "type" to i.type,
+                    "addr" to if (i.host != null && i.port != null) listOf(i.host, i.port) else null,
+                    "by" to i.by, "accepted" to i.accepted,
+                )
+            },
+            "blocked" to blocked.sorted(),
+        )
+        atomicWrite(file, toJson(o).toString())
+    }
+}
+
 fun parseWol(a: kotlinx.serialization.json.JsonArray?): List<WolTarget> = a?.mapNotNull { e ->
     val o = e.asObj() ?: return@mapNotNull null
     val mac = o.str("mac")?.takeIf { WakeOnLan.validMac(it) } ?: return@mapNotNull null

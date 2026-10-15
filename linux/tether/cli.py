@@ -360,8 +360,17 @@ def refresh_bookmark(url: str) -> None:
 
 
 def cmd_mount(paths, args):
-    url = Ctl(paths).call("status")["dav_url"]
-    if args.bookmark:
+    st = Ctl(paths).call("status")
+    url = st["dav_url"]
+    if args.device:
+        want = args.device.lower()
+        d = next((d for d in st["devices"] if d["name"].lower() == want or d["id"].startswith(want)), None)
+        if d is None:
+            sys.exit(f"no paired device called {args.device}")
+        if not d.get("dav_url"):
+            sys.exit(f"{d['name']} isn't connected")
+        url = d["dav_url"]
+    if args.bookmark and not args.device:
         add_bookmark(url)
         print("Added “Phone (Tether)” to the Files sidebar.")
     subprocess.run(["gio", "mount", url], check=False)
@@ -494,7 +503,8 @@ def main(argv=None):
     p.add_argument("value")
     p.set_defaults(fn=cmd_set)
 
-    p = sub.add_parser("mount", help="open the phone in Files")
+    p = sub.add_parser("mount", help="open the phone (or another device) in Files")
+    p.add_argument("device", nargs="?", help="a paired device's name or id; default: the phone")
     p.add_argument("--bookmark", action="store_true", help="also add it to the Files sidebar")
     p.add_argument("--no-open", action="store_true")
     p.set_defaults(fn=cmd_mount)

@@ -29,7 +29,8 @@ private const val MAX_UNTRUSTED = 4
 private const val INDEX_PART = 5000
 
 /** Handled on the receive thread, so they keep their order relative to later messages. */
-private val INLINE = setOf("pair_req", "pair_ok", "pair_no", "unpaired", "clip", "sync_index")
+private val INLINE = setOf("pair_req", "pair_ok", "pair_no", "unpaired", "intro_ok", "introduce", "clip", "sync_index")
+private const val MAX_INTRODUCED = 64
 
 const val MAX_CLIP_IMAGE = 16 * 1024 * 1024
 
@@ -54,6 +55,9 @@ sealed class NodeEvent {
     data class PairFailed(val id: String, val reason: String) : NodeEvent()
     data class Paired(val id: String, val name: String) : NodeEvent()
     data class Unpaired(val id: String, val name: String) : NodeEvent()
+
+    /** A paired computer vouched for another device; the user decides whether to trust it. */
+    data class Introduced(val id: String, val name: String, val byName: String) : NodeEvent()
     data class FileReceived(val from: String, val file: File) : NodeEvent()
     data class ClipboardReceived(val from: String) : NodeEvent()
     data class Notification(val from: String, val fromName: String, val title: String, val text: String) : NodeEvent()
@@ -84,6 +88,10 @@ class Session(val node: Node, val hs: HandshakeResult, val isClient: Boolean, va
     @Volatile
     var pair: PairState? = null
 
+    /** Introduction handshake on this (untrusted) session: we sent intro_ok / the peer did. */
+    var introSent = false
+    var introRemote = false
+
     lateinit var channel: Channel
     val remoteIndex = ConcurrentHashMap<String, Map<String, RemoteEntry>>()
     internal val indexParts = HashMap<String, MutableMap<String, RemoteEntry>>()
@@ -105,6 +113,7 @@ class Node(
 ) {
     val settings = Settings(File(dir, "settings.json"), defaults)
     val peers = PeerStore(File(dir, "peers.json"))
+    val intros = IntroStore(File(dir, "introductions.json"))
     private val syncDir = File(dir, "sync").apply { mkdirs() }
     private val sessions = ConcurrentHashMap<String, Session>()
     private val untrusted: MutableSet<Session> = ConcurrentHashMap.newKeySet()
@@ -252,6 +261,7 @@ class Node(
             }
             untrusted.add(s)
             scheduler.schedule({ if (!s.trusted && s.pair == null) s.channel.close() }, PAIR_TIMEOUT_SEC, TimeUnit.SECONDS)
+            if (intros.accepted(s.peerId)) pool.execute { safely { sendIntroOk(s) } }
         }
         platform.log("session with ${s.name} (${s.peerId.take(12)}, ${if (s.trusted) "trusted" else "unpaired"})")
         return s
@@ -289,8 +299,11 @@ class Node(
     }
 
     fun onBeacon(peerId: String, host: String, port: Int) {
-        if (!peers.contains(peerId)) return
-        peers.setAddr(peerId, host, port)
+        when {
+            peers.contains(peerId) -> peers.setAddr(peerId, host, port)
+            intros.accepted(peerId) -> intros.setAddr(peerId, host, port)
+            else -> return
+        }
         if (identity.id < peerId) pool.execute { tryConnect(peerId, host, port) }
     }
 
@@ -332,6 +345,11 @@ class Node(
         for (p in peers.all()) {
             if (p.host != null && p.port != null && !isConnected(p.id)) pool.execute { tryConnect(p.id, p.host, p.port) }
         }
+        for (i in intros.all()) {
+            if (i.accepted && i.host != null && i.port != null && identity.id < i.id) {
+                pool.execute { tryConnect(i.id, i.host, i.port) }
+            }
+        }
         for (hp in settings.staticPeers) {
             val host = hp.substringBeforeLast(':')
             val port = hp.substringAfterLast(':').toIntOrNull() ?: settings.port
@@ -344,12 +362,17 @@ class Node(
     private fun handle(s: Session, ch: Channel, msg: JsonObject, inc: Incoming?) {
         when (val t = msg.str("t")) {
             "pair_req", "pair_ok", "pair_no" -> onPair(s, t)
+            "intro_ok" -> onIntroOk(s)
             "unpaired" -> {
-                if (peers.remove(s.peerId)) platform.onEvent(NodeEvent.Unpaired(s.peerId, s.name))
+                if (peers.remove(s.peerId)) {
+                    intros.block(s.peerId)
+                    platform.onEvent(NodeEvent.Unpaired(s.peerId, s.name))
+                }
                 ch.close()
             }
             else -> {
-                if (!s.trusted) {
+                // Locked: an introduction may be promoting this session on another thread.
+                if (!synchronized(s) { s.trusted }) {
                     // Mid-pairing the peer may already trust us; don't make it forget us.
                     if (findPairing(s.peerId) == null) ch.trySend(jobj("t" to "unpaired"))
                     ch.close()
@@ -357,6 +380,7 @@ class Node(
                 }
                 when (t) {
                     "clip" -> onClip(s, msg)
+                    "introduce" -> onIntroduce(s, msg)
                     "send" -> onSend(s, msg, inc!!)
                     "fs_list" -> ch.reply(msg, "entries" to shares.list(msg.str("path")))
                     "fs_stat" -> ch.reply(msg, "entry" to shares.stat(msg.str("path")))
@@ -492,6 +516,12 @@ class Node(
         val p = s.pair ?: return
         if (p.local != true || p.remote != true) return
         s.pair = null
+        promote(s, null)
+    }
+
+    /** Stores the peer and makes its session trusted in place. Call holding the session's lock. */
+    private fun promote(s: Session, introducer: String?) {
+        val intro = intros.forget(s.peerId)
         s.trusted = true
         untrusted.remove(s)
         synchronized(this) {
@@ -499,13 +529,11 @@ class Node(
             if (old != null && old !== s) old.channel.close()
             sessions[s.peerId] = s
         }
-        peers.add(
-            PeerInfo(
-                s.peerId, s.name, Crypto.b64(s.hs.peerSpki), s.type,
-                if (s.isClient) s.addr?.hostString else null, if (s.isClient) s.addr?.port else null,
-            ),
-        )
-        platform.log("paired with ${s.name}")
+        val host = if (s.isClient) s.addr?.hostString else intro?.host
+        val port = if (s.isClient) s.addr?.port else intro?.port
+        peers.add(PeerInfo(s.peerId, s.name, Crypto.b64(s.hs.peerSpki), s.type, host, port))
+        val by = introducer?.let { peers.get(it)?.name }
+        platform.log("paired with ${s.name}" + (by?.let { " (introduced by $it)" } ?: ""))
         platform.onEvent(NodeEvent.Paired(s.peerId, s.name))
         pool.execute { onTrusted(s) }
     }
@@ -517,9 +545,85 @@ class Node(
         }
         val name = peers.get(peerId)?.name ?: "?"
         if (!peers.remove(peerId)) throw RemoteError("not_found")
+        intros.block(peerId) // so a computer's introductions don't bring it back
         syncDir.listFiles { f -> f.name.startsWith("base-${peerId.take(16)}-") }?.forEach { it.delete() }
         platform.onEvent(NodeEvent.Unpaired(peerId, name))
         platform.onEvent(NodeEvent.StatusChanged)
+    }
+
+    // -- introductions (a computer paired with both sides vouches for each) -------------
+
+    /** Introductions waiting for the user's answer. */
+    fun pendingIntroductions(): List<Introduction> = intros.all().filter { !it.accepted }
+
+    /** Trusts or declines a device a paired computer introduced. Blocking. */
+    fun answerIntroduction(id: String, accept: Boolean) {
+        val i = intros.get(id) ?: throw RemoteError("not_found", "no such introduction")
+        if (!accept) {
+            intros.block(id)
+            (untrusted + sessions.values).filter { it.peerId == id && !it.trusted }.forEach { it.channel.close() }
+            platform.onEvent(NodeEvent.StatusChanged)
+            return
+        }
+        intros.put(i.copy(accepted = true))
+        platform.onEvent(NodeEvent.StatusChanged)
+        val live = untrusted.firstOrNull { it.peerId == id && !it.channel.closed }
+        when {
+            live != null -> sendIntroOk(live)
+            i.host != null && i.port != null && identity.id < id -> tryConnect(id, i.host, i.port)
+        }
+    }
+
+    private fun onIntroduce(s: Session, msg: JsonObject) {
+        val items = msg.arr("peers") ?: throw RemoteError("bad_request")
+        for (el in items.take(MAX_INTRODUCED)) {
+            val e = el.asObj() ?: continue
+            val id = e.str("id") ?: continue
+            val key = e.str("key") ?: continue
+            val spki = runCatching { Crypto.unb64(key) }.getOrNull() ?: continue
+            if (Crypto.hex(Crypto.sha256(spki)) != id) continue // the key must be the one the id names
+            if (id == identity.id || peers.contains(id) || intros.isBlocked(id)) continue
+            val addr = e.arr("addr")
+            val host = addr?.getOrNull(0)?.asStr()
+            val port = addr?.getOrNull(1)?.asLong()?.toInt()
+            val old = intros.get(id)
+            if (old != null) {
+                if (old.host == null && host != null && port != null) intros.setAddr(id, host, port)
+                continue
+            }
+            val name = (e.str("name") ?: "device").take(100)
+            intros.put(Introduction(id, name, key, e.str("type") ?: "", host, port, s.peerId, accepted = false))
+            platform.log("${s.name} introduced $name (${id.take(12)})")
+            platform.onEvent(NodeEvent.Introduced(id, name, s.name))
+            platform.onEvent(NodeEvent.StatusChanged)
+        }
+    }
+
+    /** Sends intro_ok and promotes under the session's lock, so no later message sees it untrusted. */
+    private fun sendIntroOk(s: Session) {
+        synchronized(s) {
+            if (s.introSent || s.trusted || s.channel.closed) return
+            s.introSent = true
+            s.channel.send(jobj("t" to "intro_ok"))
+            maybeIntroduced(s)
+        }
+    }
+
+    private fun onIntroOk(s: Session) {
+        synchronized(s) {
+            s.introRemote = true
+            if (s.trusted) return
+        }
+        if (intros.accepted(s.peerId)) sendIntroOk(s)
+        synchronized(s) { maybeIntroduced(s) }
+    }
+
+    /** Both sides sent intro_ok: trust the peer, provided it holds the key we were introduced to. */
+    private fun maybeIntroduced(s: Session) {
+        if (s.trusted || !s.introSent || !s.introRemote) return
+        val i = intros.get(s.peerId) ?: return
+        if (!i.accepted || i.key != Crypto.b64(s.hs.peerSpki)) return
+        promote(s, i.by)
     }
 
     fun pendingPairs(): List<PendingPair> = (untrusted + sessions.values).mapNotNull { s ->

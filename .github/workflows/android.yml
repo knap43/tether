@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - "android/**"
+      - "linux/tether/**"
+      - "tests/interop/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
       - "android/**"
+      - "linux/tether/**"
+      - "tests/interop/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
@@ -35,6 +39,19 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Interop test (Kotlin core against the Linux daemon)
+        working-directory: .
+        run: |
+          curl -sSL -o /tmp/kotlinc.zip https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip
+          unzip -q /tmp/kotlinc.zip -d /tmp
+          export PATH=/tmp/kotlinc/bin:$PATH
+          pip install --quiet aiohttp cryptography
+          sh tests/interop/run.sh
 
       - uses: actions/upload-artifact@v4
         with:

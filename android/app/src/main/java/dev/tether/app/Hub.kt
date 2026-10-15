@@ -211,6 +211,10 @@ class AndroidPlatform(private val context: Context) : Platform {
             is NodeEvent.TransferProgress -> TransferNotifier.update(context, event.info)
             is NodeEvent.AudioControl -> PhoneAudio.onControl(context, event)
             is NodeEvent.AudioVolume -> PhoneAudio.onVolume(context, event)
+            is NodeEvent.Introduced -> Notifications.post(
+                context, "${event.byName} introduced ${event.name}",
+                "Open Tether to decide whether ${event.name} may reach this phone",
+            )
             is NodeEvent.Unpaired -> Notifications.post(context, "Unpaired", "${event.name} no longer trusts this phone")
             else -> {}
         }
