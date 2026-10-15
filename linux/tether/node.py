@@ -16,8 +16,8 @@ from pathlib import Path
 
 from . import clipboard
 from .channel import CHUNK, Channel, StreamAborted
-from .config import Config, Paths, PeerStore
-from .crypto import HandshakeError, Identity, b64e, handshake
+from .config import Config, Introductions, Paths, PeerStore
+from .crypto import HandshakeError, Identity, b64d, b64e, handshake
 from .desknotify import REASON_DISMISSED, DesktopNotifier
 from .discovery import Discovery
 from .errors import ProtoError, from_oserror
@@ -35,6 +35,8 @@ MAX_UNTRUSTED = 4
 INDEX_PART = 5000
 MAX_OUTPUT = 64 * 1024
 AUDIO_ASK_TIMEOUT = 90  # how long the phone has to accept a request to stream its audio
+DEFAULT_PORT = 47291
+MAX_INTRODUCED = 64
 
 
 def user_shell() -> str:
@@ -166,6 +168,8 @@ class Session:
         self.notifs: dict[str, int] = {}  # phone notification key -> desktop notification id
         self.audio = "off"  # phone audio playing here: off | starting | on
         self.audio_asked = 0.0
+        self.intro_sent = False  # we sent intro_ok on this (untrusted) session
+        self.intro_remote = False  # the peer sent intro_ok
 
     def info(self) -> dict:
         return {"id": self.peer_id, "name": self.name, "type": self.type, "addr": self.addr[0] if self.addr else None}
@@ -177,6 +181,7 @@ class Node:
         self.cfg = Config(paths)
         self.identity = Identity.load_or_create(paths.identity_file)
         self.peers = PeerStore(paths.peers_file)
+        self.intros = Introductions(paths.intros_file)
         self.sessions: dict[str, Session] = {}
         self.untrusted: set[Session] = set()
         self.connecting: set[str] = set()
@@ -275,6 +280,8 @@ class Node:
                 return None
             self.untrusted.add(s)
             s.channel.spawn(self._expire_untrusted(s))
+            if self.intros.accepted(s.peer_id):
+                s.channel.spawn(self._send_intro_ok(s))
         log.info("session with %s (%s, %s)", s.name, s.peer_id[:12], "trusted" if s.trusted else "unpaired")
         return s
 
@@ -308,6 +315,7 @@ class Node:
     async def _on_trusted(self, s: Session) -> None:
         self.emit_status()
         s.channel.spawn(self._sync_worker(s))
+        await self._introduce(s)
         if s.type == "phone":
             await self._send_host_info(s)
         if s.type == "phone" and (self.media.available or not self.cfg["media"]):
@@ -315,9 +323,12 @@ class Node:
         await self._send_indexes(s)
 
     def on_beacon(self, peer_id: str, host: str, port: int) -> None:
-        if peer_id not in self.peers:
+        if peer_id in self.peers:
+            self.peers.set_addr(peer_id, (host, port))
+        elif self.intros.accepted(peer_id):
+            self.intros.set_addr(peer_id, (host, port))
+        else:
             return
-        self.peers.set_addr(peer_id, (host, port))
         if self.identity.id < peer_id:
             self.spawn(self._try_connect(peer_id, host, port))
 
@@ -338,6 +349,9 @@ class Node:
             for pid, p in list(self.peers.peers.items()):
                 if p.get("addr") and not self.is_connected(pid):
                     self.spawn(self._try_connect(pid, p["addr"][0], p["addr"][1]))
+            for pid, e in list(self.intros.pending.items()):
+                if e.get("accepted") and e.get("addr") and self.identity.id < pid:
+                    self.spawn(self._try_connect(pid, e["addr"][0], e["addr"][1]))
             for hp in self.cfg["static_peers"]:
                 host, _, port = hp.rpartition(":")
                 if host and not any(s.addr and s.addr[0] == host for s in self.connected()):
@@ -351,8 +365,11 @@ class Node:
         t = msg.get("t")
         if t in ("pair_req", "pair_ok", "pair_no"):
             return await self._on_pair(s, t)
+        if t == "intro_ok":
+            return await self._on_intro_ok(s)
         if t == "unpaired":
             if self.peers.remove(s.peer_id):
+                self.intros.block(s.peer_id)
                 log.info("%s forgot us; unpaired", s.name)
                 self.notify("Unpaired", f"{s.name} no longer trusts this computer")
             ch.close()
@@ -441,17 +458,119 @@ class Node:
         if not (s.pair and s.pair["local"] and s.pair["remote"]):
             return
         s.pair = None
-        self.peers.add(s.peer_id, s.name, b64e(s.hs.peer_spki), s.type, list(s.addr) if s.is_client else None)
+        self._promote(s)
+
+    def _promote(self, s: Session, introducer: str | None = None) -> None:
+        """Stores the peer and makes its session trusted in place."""
+        addr = list(s.addr) if s.is_client else None
+        intro = self.intros.forget(s.peer_id)
+        if addr is None and intro and intro.get("addr"):
+            addr = intro["addr"]
+        self.peers.add(s.peer_id, s.name, b64e(s.hs.peer_spki), s.type, addr)
         s.trusted = True
         self.untrusted.discard(s)
         old = self.sessions.get(s.peer_id)
         if old is not None and old is not s:
             old.channel.close()
         self.sessions[s.peer_id] = s
-        log.info("paired with %s", s.name)
-        self.emit({"ev": "paired", "id": s.peer_id, "name": s.name})
-        self.notify("Paired", f"Paired with {s.name}")
+        by = (self.peers.get(introducer) or {}).get("name") if introducer else None
+        log.info("paired with %s%s", s.name, f" (introduced by {by})" if by else "")
+        self.emit({"ev": "paired", "id": s.peer_id, "name": s.name, "introduced_by": by})
+        self.notify("Paired", f"Paired with {s.name}" + (f", introduced by {by}" if by else ""))
         self.spawn(self._on_trusted(s))
+
+    # -- introductions (a device paired with both sides vouches for each) ---------
+
+    @staticmethod
+    def _introducible(a_type, b_type) -> bool:
+        """Phones are introduced to computers and computers to phones."""
+        return (a_type == "phone") != (b_type == "phone")
+
+    def _intro_entry(self, pid: str) -> dict | None:
+        p = self.peers.get(pid)
+        if p is None:
+            return None
+        addr = p.get("addr")
+        s = self.sessions.get(pid)
+        if not addr and s is not None and s.addr:
+            addr = [s.addr[0], DEFAULT_PORT]
+        return {"id": pid, "name": p["name"], "type": p.get("type"), "key": p["key"], "addr": addr}
+
+    async def _introduce(self, s: Session) -> None:
+        """Tells a newly trusted peer about our other devices, and them about it."""
+        if self.cfg.get("device_type", "desktop") == "phone":
+            return
+        others = [e for pid, p in list(self.peers.peers.items())
+                  if pid != s.peer_id and self._introducible(s.type, p.get("type"))
+                  and (e := self._intro_entry(pid)) is not None]
+        if others:
+            await s.channel.send({"t": "introduce", "peers": others[:MAX_INTRODUCED]})
+        entry = self._intro_entry(s.peer_id)
+        for o in self.connected():
+            if o is not s and entry and self._introducible(o.type, s.type):
+                o.channel.spawn(o.channel.send({"t": "introduce", "peers": [entry]}))
+
+    async def _h_introduce(self, s, msg):
+        items = msg.get("peers")
+        if not isinstance(items, list):
+            raise ProtoError("bad_request")
+        for e in items[:MAX_INTRODUCED]:
+            if not isinstance(e, dict) or not isinstance(e.get("id"), str) or not isinstance(e.get("key"), str):
+                continue
+            pid = e["id"]
+            try:
+                spki = b64d(e["key"])
+            except ValueError:
+                continue
+            if hashlib.sha256(spki).hexdigest() != pid:
+                continue  # the key must be the one the id names
+            if pid == self.identity.id or pid in self.peers or pid in self.intros.blocked:
+                continue
+            addr = e.get("addr")
+            if not (isinstance(addr, list) and len(addr) == 2 and isinstance(addr[0], str) and isinstance(addr[1], int)):
+                addr = None
+            old = self.intros.get(pid)
+            if old is not None:
+                if addr and not old.get("addr"):
+                    self.intros.set_addr(pid, addr)
+                continue
+            if not self.cfg["accept_introductions"]:
+                log.info("%s introduced %s; ignored (accept_introductions is off)", s.name, e.get("name"))
+                continue
+            name = str(e.get("name") or "device")[:100]
+            self.intros.add(pid, {"name": name, "key": e["key"], "type": str(e.get("type") or ""),
+                                  "addr": addr, "by": s.peer_id, "accepted": True})
+            log.info("%s introduced %s (%s)", s.name, name, pid[:12])
+            self.emit({"ev": "introduced", "id": pid, "name": name, "by": s.peer_id})
+            if addr and self.identity.id < pid:
+                self.spawn(self._try_connect(pid, addr[0], addr[1]))
+
+    async def _send_intro_ok(self, s: Session) -> None:
+        if s.intro_sent or s.trusted:
+            return
+        s.intro_sent = True
+        # Queue the frame first, then promote without yielding: the peer's next messages
+        # must find this session trusted, and ours must follow the intro_ok on the wire.
+        sending = asyncio.ensure_future(s.channel.send({"t": "intro_ok"}))
+        self._maybe_introduced(s)
+        await sending
+
+    async def _on_intro_ok(self, s: Session) -> None:
+        s.intro_remote = True
+        if s.trusted:
+            return
+        if not s.intro_sent and self.intros.accepted(s.peer_id):
+            await self._send_intro_ok(s)
+        else:
+            self._maybe_introduced(s)
+
+    def _maybe_introduced(self, s: Session) -> None:
+        if s.trusted or not (s.intro_sent and s.intro_remote):
+            return
+        e = self.intros.get(s.peer_id)
+        if not e or not e.get("accepted") or e.get("key") != b64e(s.hs.peer_spki):
+            return
+        self._promote(s, introducer=e.get("by"))
 
     async def unpair(self, peer_id: str) -> None:
         s = self.sessions.get(peer_id)
@@ -463,6 +582,7 @@ class Node:
             s.channel.close()
         if not self.peers.remove(peer_id):
             raise ProtoError("not_found")
+        self.intros.block(peer_id)  # so other devices don't bring it back
         for f in self.paths.sync_dir.glob(f"base-{peer_id[:16]}-*.json"):
             f.unlink(missing_ok=True)
         self.emit_status()

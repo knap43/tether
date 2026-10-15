@@ -107,7 +107,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 return
             }
-            is NodeEvent.StatusChanged, is NodeEvent.Unpaired -> {}
+            is NodeEvent.StatusChanged, is NodeEvent.Unpaired, is NodeEvent.Introduced -> {}
             else -> return // transfers, media and clipboard events don't change this screen
         }
         render()
@@ -207,6 +207,24 @@ class MainActivity : AppCompatActivity() {
                     ),
                 )
             }
+        }
+
+        for (i in node.pendingIntroductions()) {
+            val by = node.peers.get(i.by)?.name ?: "A paired computer"
+            val card = ui.card(content)
+            card.addView(ui.title("Trust ${i.name}?"))
+            card.addView(
+                ui.help(
+                    "$by vouches for it. Once trusted, ${i.name} reaches this phone directly, " +
+                        "with everything your paired computers can do.",
+                ),
+            )
+            card.addView(
+                ui.buttons(
+                    ui.button("Decline", Ui.Kind.OUTLINED) { bg { node.answerIntroduction(i.id, false) } },
+                    ui.button("Trust", Ui.Kind.FILLED) { bg { node.answerIntroduction(i.id, true) } },
+                ),
+            )
         }
 
         for (p in peers) {

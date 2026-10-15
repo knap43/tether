@@ -46,6 +46,7 @@ fun main(args: Array<String>) {
                 is NodeEvent.PairFailed -> emit("PAIRFAILED ${event.id} ${event.reason}")
                 is NodeEvent.FileReceived -> emit("FILE ${event.file.path}")
                 is NodeEvent.Unpaired -> emit("UNPAIRED ${event.id}")
+                is NodeEvent.Introduced -> emit("INTRO ${event.id} ${event.byName}")
                 is NodeEvent.Notification -> emit("NOTIFY ${event.title}|${event.text}")
                 is NodeEvent.AudioControl -> emit("AUDIOCTL ${event.on}")
                 is NodeEvent.AudioVolume -> emit("AUDIOVOL ${event.volume}")
@@ -85,6 +86,10 @@ fun main(args: Array<String>) {
                 }
                 "confirm" -> {
                     node.confirmPairing(parts[1], true)
+                    emit("OK")
+                }
+                "intro" -> {
+                    node.answerIntroduction(parts[1], parts.getOrNull(2) == "yes")
                     emit("OK")
                 }
                 "clip" -> {

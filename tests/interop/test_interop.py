@@ -379,6 +379,30 @@ async def main(root: Path, cp: str):
         else:
             print("skip wake-on-LAN (no physical interface here)")
 
+        # --- introduction: a laptop paired only with A reaches the phone directly
+        l_share = root / "l_share"
+        l_share.mkdir()
+        (l_share / "notes.txt").write_text("laptop")
+        L = make_node(root, "L", 49591, {"shares": {"Laptop": str(l_share)}})
+        await L.start(with_dav=False, with_discovery=False)
+        lid = L.identity.id
+        s = await A.start_pairing(addr="127.0.0.1:49591")
+        await until(lambda: L._find_pairing(aid) is not None, what="pair request at L")
+        await A.confirm_pairing(lid, True)
+        await L.confirm_pairing(aid, True)
+        assert (await k.expect("INTRO")).split()[1] == lid
+        await until(lambda: L.intros.accepted(kid), what="phone introduced to the laptop")
+        assert kid not in L.peers, "the laptop must wait for the phone's consent"
+        await k.cmd(f"intro {lid} yes")
+        await until(lambda: kid in L.peers and L.is_connected(kid), timeout=15, what="introduced session")
+        await k.expect(f"PAIRED {lid}")
+        entries = (await L.sessions[kid].channel.request({"t": "fs_list", "path": "/"}))["entries"]
+        assert [e["name"] for e in entries] == ["Internal"], entries
+        assert (await k.cmd(f"ls {lid} /Laptop", "LS")) == "LS notes.txt"
+        await L.unpair(kid)
+        await k.expect(f"UNPAIRED {lid}")
+        print("ok  introduction (Python introduces Python laptop to Kotlin phone)")
+
         # --- reconnect
         await k.cmd(f"drop {aid}")
         await until(lambda: not A.is_connected(kid), what="drop")

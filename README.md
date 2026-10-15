@@ -66,6 +66,10 @@ With both on the same network, run `tether pair` on the computer (or tap **Pair*
 
 If discovery is blocked (guest networks, "AP isolation"), pair by address: `tether pair --addr 192.168.1.42` or **Pair by IP address** in the app.
 
+### Several computers
+
+Pair a second computer with the first, and the first **introduces** it to your phone (and your phone to it): the phone asks once, **Trust *laptop*?**, and from then on the two link directly, with every feature, whether or not the first computer is on. Computers accept introductions on their own; `tether set accept_introductions off` stops that. Unpairing a device on either side sticks — no later introduction brings it back until you pair it by hand.
+
 ## 4. Everyday use
 
 | | On the computer | On the phone |
@@ -136,7 +140,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 - Each device has a P-256 identity key (on the phone it lives in the Android Keystore). Sessions use an ephemeral ECDH handshake, signed by those keys, and AES-256-GCM.
 - Pairing is protected against interception by the six-digit code, which is derived from the handshake itself.
-- Unpaired devices can do nothing but ask to pair. A paired phone may run only the commands you saved, unless you turn on `remote_shell`. Browsing is confined to the folders you share; `..` and symlinks leading outside are refused.
+- Unpaired devices can do nothing but ask to pair. An introduced device is trusted only once both sides agree and it proves it holds the key a paired computer vouched for. A paired phone may run only the commands you saved, unless you turn on `remote_shell`. Browsing is confined to the folders you share; `..` and symlinks leading outside are refused.
 - The Files bridge on the computer listens only on 127.0.0.1, behind a random token in the URL. `…/Phone/` is the connected phone (its folder itself when it shares just one); the bridge's top level lists every connected device and its shares.
 - Password managers that mark copies as secret are not synced from GNOME.
 
@@ -150,6 +154,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 - The clipboard carries text and images (up to 16 MB), not files.
 - Sync is between two devices at a time per folder, and very large folders (tens of thousands of files) send sizeable indexes.
+- Introductions come from Linux computers; a Mac neither makes nor accepts them yet, so pair it with the phone directly.
 - Phone audio is Linux only for now, and plays one phone at a time; latency is about a fifth of a second, growing to under half a second on a choppy network, so video on the phone may look slightly ahead of its sound.
 - Android's shared storage is case-insensitive; two files differing only in case on Linux will collide there.
 
@@ -157,6 +162,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 
 ```sh
 python3 linux/tests/test_e2e.py     # two Linux daemons: pairing, clipboard, send, browse, WebDAV, sync, commands, reconnect
+python3 linux/tests/test_web.py     # three daemons: a computer introduces a laptop and a phone; unpairing sticks
 tests/interop/run.sh                # the Android app's Kotlin core against the Linux daemon (needs kotlinc)
 linux/tests/dbus/run.sh            # real D-Bus: desktop notifications via gdbus, media via playerctl (fake services)
 python3 linux/tests/test_parsers.py # parsers for playerctl, wpctl and gdbus output

@@ -83,7 +83,7 @@ async def main(root: Path):
     (b_sync / "nested" / "only_b.txt").write_text("B")
 
     A = make_node(root, "A", 48291, {"shares": {"Home": str(a_share)}, "sync": [{"id": "docs", "path": str(a_sync)}]})
-    B = make_node(root, "B", 48391, {"shares": {"Internal": str(b_share)}, "sync": [{"id": "docs", "path": str(b_sync)}]})
+    B = make_node(root, "B", 48391, {"device_type": "phone", "shares": {"Internal": str(b_share)}, "sync": [{"id": "docs", "path": str(b_sync)}]})
     await A.start(with_dav=True, with_discovery=False)
     await B.start(with_dav=False, with_discovery=False)
 

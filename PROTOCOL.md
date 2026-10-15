@@ -78,7 +78,7 @@ The first frame in each direction is:
 ## 4. Pairing
 
 A session with an unknown device is *untrusted* and only `pair_req`, `pair_ok`,
-`pair_no`, `ping`, `pong` and `unpaired` are allowed; anything else is answered
+`pair_no`, `intro_ok`, `ping`, `pong` and `unpaired` are allowed; anything else is answered
 with `unpaired` and the connection closes.
 
 Both sides derive a short authentication string:
@@ -95,6 +95,32 @@ SAS = (u32(SHA-256("tether-v1 sas" || th)[0:4]) mod 1 000 000), zero-padded to 6
 Pairing that is not completed within 120 s is dropped.
 `{"t": "unpaired"}` from an authenticated peer means it no longer trusts us;
 the receiver forgets that peer and closes.
+
+### 4.1 Introductions
+
+Devices paired only through a common computer are introduced to each other, so
+every phone links directly with every computer and nothing is relayed.
+
+A desktop sends, on a trusted session,
+`{"t": "introduce", "peers": [{"id", "name", "type", "key": "<base64 spki>", "addr": [host, port] | null}]}`:
+to a peer that has just become trusted, every other paired device of the other
+kind (phones to a computer, computers to a phone); and to every connected peer
+of the other kind, the newly trusted one. Phones don't introduce.
+
+The receiver ignores an entry whose `id` is not `hex(SHA-256(key))`, is its own,
+is already paired, or is **blocked**. Otherwise it records the introduction and
+whether it accepts it: a desktop does so at once (setting `accept_introductions`,
+on by default), a phone asks its user. Accepted introductions are dialled like
+paired peers (§2).
+
+On a session with an introduced device, each side that has accepted the
+introduction sends `{"t": "intro_ok"}` as its first message. Having sent and
+received `intro_ok`, a side checks that the peer's handshake key equals the
+introduced `key`, stores the peer, and the session becomes trusted in place.
+
+A device is blocked once it is unpaired on either side or its introduction is
+declined, so later introductions don't bring it back; pairing with it (§4)
+lifts the block.
 
 ## 5. Messages on a trusted session
 
