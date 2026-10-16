@@ -104,6 +104,11 @@ class Channel(
 
     @Volatile
     var closed = false
+
+    /** When a frame last arrived (System.nanoTime). */
+    @Volatile
+    var lastRx = System.nanoTime()
+        private set
         private set
 
     /** Why the connection ended, once it has (for error messages). */
@@ -253,6 +258,7 @@ class Channel(
             socket.soTimeout = IDLE_TIMEOUT_MS
             while (true) {
                 val pt = framer.recv()
+                lastRx = System.nanoTime()
                 when (pt[0]) {
                     KIND_JSON -> onMessage(parseObj(String(pt, 1, pt.size - 1, Charsets.UTF_8)))
                     KIND_DATA -> {
@@ -318,6 +324,25 @@ class Channel(
     }
 
     private var finished = false
+
+    /**
+     * Pings and waits for any frame back. A computer that went to sleep without a word leaves
+     * the socket open for many minutes; this finds out in seconds. Blocking. False if it closed.
+     */
+    fun probe(timeoutMs: Long = 4_000): Boolean {
+        if (closed) return false
+        val t0 = System.nanoTime()
+        if (t0 - lastRx < 2_000_000_000L) return true // heard from it just now
+        // Sent from another thread: a write stuck behind a dead peer must not stall the wait.
+        pool.execute { trySend(jobj("t" to "ping")) }
+        val deadline = t0 + timeoutMs * 1_000_000
+        while (System.nanoTime() < deadline) {
+            if (lastRx > t0 || closed) return !closed
+            Thread.sleep(50)
+        }
+        close("no answer")
+        return false
+    }
 
     fun close(reason: String? = null) {
         if (closeReason == null && reason != null) closeReason = reason

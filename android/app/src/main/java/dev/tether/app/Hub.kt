@@ -188,6 +188,8 @@ class AndroidPlatform(private val context: Context) : Platform {
             is NodeEvent.StatusChanged -> {
                 context.contentResolver.notifyChange(DocumentsContract.buildRootsUri(PcDocumentsProvider.AUTHORITY), null)
                 TetherService.refreshNotification(context)
+                // A computer that went away (or to sleep) can't be playing anything for us.
+                MediaNotifier.shownFor?.let { if (Hub.node?.isConnected(it) != true) MediaNotifier.clear(context) }
             }
             is NodeEvent.PairRequest -> if (!event.initiator) {
                 val code = event.sas.substring(0, 3) + " " + event.sas.substring(3)

@@ -24,6 +24,7 @@ from .discovery import Discovery
 from .errors import ProtoError, from_oserror
 from .fsops import TMP_PREFIX, Shares
 from .media import Media
+from .sleepwatch import SleepWatch
 from . import phoneaudio
 from .transfers import Transfer, Transfers
 from .sync import BaseState, FolderIndex, now_ms, plan, remove_empty_parents, safe_rel, tmp_path_for
@@ -205,6 +206,8 @@ class Node:
         self.audio_out = None  # the sink playing it
         self.audio_sent_volume: float | None = None  # last volume the streaming phone was told
         self.tasks: set[asyncio.Task] = set()
+        self.sleepwatch = SleepWatch(self.before_sleep, self.after_wake)
+        self.asleep: set[str] = set()  # peers that told us they went to sleep, until they're back
         self.load_sync_folders()
 
     # -- lifecycle ----------------------------------------------------------
@@ -237,6 +240,8 @@ class Node:
         self.spawn(self.media.watch())
         self.spawn(self._media_poll())
         self.spawn(self.desk.watch())
+        if with_discovery:
+            self.spawn(self.sleepwatch.watch())
 
     # -- connections --------------------------------------------------------
 
@@ -273,6 +278,7 @@ class Node:
             if not self._register(s):
                 hs.framer.close()
                 return None
+            self.asleep.discard(s.peer_id)
             if self.peers.set_name(s.peer_id, s.name):
                 self.sync_bookmarks()  # renamed: the sidebar follows
             if is_client:
@@ -347,6 +353,31 @@ class Node:
             log.debug("connect to %s:%s failed: %s", host, port, e)
         finally:
             self.connecting.discard(peer_id)
+
+    async def before_sleep(self) -> None:
+        """This computer is about to sleep: say so, so devices don't show it as connected."""
+        sessions = self.connected()
+        await asyncio.gather(*(asyncio.wait_for(s.channel.send({"t": "sleeping"}), 1) for s in sessions),
+                             return_exceptions=True)
+        for s in sessions:
+            s.channel.close()
+        log.info("going to sleep; told %d device(s)", len(sessions))
+
+    async def after_wake(self) -> None:
+        log.info("awake; reconnecting")
+        self.reconnect_now()
+        if self.discovery.transport:
+            self.discovery.announce()
+
+    def reconnect_now(self) -> None:
+        for pid, p in list(self.peers.peers.items()):
+            if p.get("addr") and not self.is_connected(pid):
+                self.spawn(self._try_connect(pid, p["addr"][0], p["addr"][1]))
+
+    async def _h_sleeping(self, s, msg):
+        """A computer is going to sleep."""
+        self.asleep.add(s.peer_id)
+        s.channel.close()
 
     async def _reconnect_loop(self) -> None:
         while True:
@@ -1271,6 +1302,7 @@ class Node:
             s = self.sessions.get(pid)
             devices.append({"id": pid, "name": p["name"], "type": p.get("type"), "paired": True,
                             "connected": self.is_connected(pid),
+                            "asleep": pid in self.asleep and not self.is_connected(pid),
                             "dav_url": dav_root + quote(labels[pid]) + "/" if pid in labels else None,
                             "sidebar": pid in sidebar,
                             "battery": s.battery if s and self.is_connected(pid) else None,

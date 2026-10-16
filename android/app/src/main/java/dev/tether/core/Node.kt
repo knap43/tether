@@ -120,6 +120,11 @@ class Node(
     private val connecting: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val lastClose = ConcurrentHashMap<String, String>()
 
+    /** Computers that said they were going to sleep, until they're back. */
+    private val asleep: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    fun isAsleep(peerId: String): Boolean = peerId in asleep && !isConnected(peerId)
+
     /** Why the last connection with this peer ended, if it did. */
     fun lastCloseReason(peerId: String): String? = lastClose[peerId]
 
@@ -252,6 +257,7 @@ class Node(
                 runCatching { sock.close() }
                 return null
             }
+            asleep.remove(s.peerId)
             if (isClient && addr != null) peers.setAddr(s.peerId, addr.hostString, addr.port, s.name)
             pool.execute { onTrusted(s) }
         } else {
@@ -322,6 +328,17 @@ class Node(
         }
     }
 
+    /**
+     * Checks every connection at once and drops the ones that don't answer, e.g. a computer
+     * that slept without saying so. Blocking (a few seconds at most); then reconnects the rest.
+     */
+    fun checkConnections() {
+        val probes = connected().map { s -> pool.submit<Boolean> { s.channel.probe() } }
+        val dropped = probes.count { runCatching { !it.get() }.getOrDefault(true) }
+        if (dropped > 0) platform.log("$dropped connection(s) didn't answer; dropped")
+        reconnectAll()
+    }
+
     /** True if we know how to wake this computer (it told us its network cards). */
     fun canWake(peerId: String): Boolean = peers.get(peerId)?.wol?.isNotEmpty() == true
 
@@ -380,6 +397,10 @@ class Node(
                 }
                 when (t) {
                     "clip" -> onClip(s, msg)
+                    "sleeping" -> {
+                        asleep.add(s.peerId)
+                        ch.close("went to sleep")
+                    }
                     "introduce" -> onIntroduce(s, msg)
                     "send" -> onSend(s, msg, inc!!)
                     "fs_list" -> ch.reply(msg, "entries" to shares.list(msg.str("path")))

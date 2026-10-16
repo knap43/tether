@@ -104,6 +104,19 @@ async def main(root: Path):
     assert [d["sidebar"] for d in PC.status()["devices"] if d["id"] == lap] == [True]
     print("ok  Files sidebar: devices by name, chosen ones only, renames followed, other bookmarks kept")
 
+    # --- the PC goes to sleep: the others hear about it at once, and it comes back on waking
+    await PC.before_sleep()
+    await until(lambda: not LAP.is_connected(PC.identity.id) and not PH.is_connected(PC.identity.id), what="sleep")
+    assert [d["asleep"] for d in LAP.status()["devices"] if d["id"] == PC.identity.id] == [True]
+    await PC.after_wake()
+    if PC.identity.id > lap:
+        await LAP._try_connect(PC.identity.id, "127.0.0.1", 49291)
+    if PC.identity.id > ph:
+        await PH._try_connect(PC.identity.id, "127.0.0.1", 49291)
+    await until(lambda: PC.is_connected(lap) and PC.is_connected(ph), what="awake again")
+    assert [d["asleep"] for d in LAP.status()["devices"] if d["id"] == PC.identity.id] == [False]
+    print("ok  a sleeping computer is shown asleep, then reconnects on waking")
+
     # --- reconnect after a drop, without the PC
     for sess in list(PC.connected()):
         sess.channel.close()

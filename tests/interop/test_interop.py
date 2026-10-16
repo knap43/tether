@@ -408,6 +408,29 @@ async def main(root: Path, cp: str):
         await k.expect(f"UNPAIRED {lid}")
         print("ok  introduction (Python introduces Python laptop to Kotlin phone)")
 
+        # --- a computer going to sleep: announced, or silent
+        await A.before_sleep()
+        await until(lambda: not A.is_connected(kid), what="sleep closes the session")
+        assert (await k.cmd(f"asleep {aid}", "ASLEEP")) == "ASLEEP true"
+        await A._try_connect(kid, "127.0.0.1", 49391) if A.identity.id < kid else await k.cmd("reconnect")
+        await until(lambda: A.is_connected(kid), timeout=15, what="back after sleep")
+        assert (await k.cmd(f"asleep {aid}", "ASLEEP")) == "ASLEEP false"
+        sa = A.sessions[kid]
+        real = sa.channel._on_message
+
+        async def deaf(msg):  # a suspended computer: nothing comes back
+            return None
+
+        sa.channel._on_message = deaf
+        await asyncio.sleep(2.5)  # let the phone's "heard from it just now" window pass
+        checked = await k.cmd("check", "CHECKED", timeout=15)
+        assert aid not in checked, checked
+        sa.channel._on_message = real
+        await until(lambda: not A.is_connected(kid), what="silent computer dropped")
+        await k.cmd("reconnect")
+        await until(lambda: A.is_connected(kid), timeout=15, what="reconnect after the check")
+        print("ok  sleeping computer: announced (shown asleep) and silent (dropped by the check)")
+
         # --- reconnect
         await k.cmd(f"drop {aid}")
         await until(lambda: not A.is_connected(kid), what="drop")

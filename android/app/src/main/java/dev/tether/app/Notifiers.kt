@@ -36,13 +36,22 @@ object MediaNotifier {
     private fun action(context: Context, icon: Int, title: String, pi: PendingIntent) =
         Notification.Action.Builder(Icon.createWithResource(context, icon), title, pi).build()
 
+    /** The computer whose player the notification shows. */
+    @Volatile
+    var shownFor: String? = null
+        private set
+
     fun update(context: Context, peer: String, computer: String, state: MediaState) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         val p = state.active
         if (p == null || p.status == "Stopped") {
-            nm.cancel(ID)
+            if (shownFor == null || shownFor == peer) {
+                nm.cancel(ID)
+                shownFor = null
+            }
             return
         }
+        shownFor = peer
         val open = PendingIntent.getActivity(
             context, 7,
             Intent(context, MediaActivity::class.java).putExtra(MediaActivity.EXTRA_PEER, peer)
@@ -77,6 +86,7 @@ object MediaNotifier {
 
     fun clear(context: Context) {
         context.getSystemService(NotificationManager::class.java)?.cancel(ID)
+        shownFor = null
     }
 }
 

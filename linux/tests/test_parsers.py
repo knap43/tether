@@ -28,4 +28,9 @@ assert parse_signal("/org/freedesktop/Notifications: org.freedesktop.Notificatio
     == ("closed", 7, 2)
 assert parse_signal("/org/freedesktop/Notifications: org.freedesktop.Notifications.ActivationToken (uint32 7, 'x')") is None
 assert gv_string('say "hi"\n\\ ok') == '"say \\"hi\\"\\n\\\\ ok"'
+from tether.sleepwatch import parse_prepare  # noqa: E402
+
+assert parse_prepare("/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (true,)") is True
+assert parse_prepare("/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)") is False
+assert parse_prepare("/org/freedesktop/login1: org.freedesktop.login1.Manager.SessionNew ('3', objectpath '/x')") is None
 print("ALL PARSER TESTS PASSED")
