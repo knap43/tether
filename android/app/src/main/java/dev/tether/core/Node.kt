@@ -29,7 +29,7 @@ private const val MAX_UNTRUSTED = 4
 private const val INDEX_PART = 5000
 
 /** Handled on the receive thread, so they keep their order relative to later messages. */
-private val INLINE = setOf("pair_req", "pair_ok", "pair_no", "unpaired", "intro_ok", "introduce", "clip", "sync_index")
+private val INLINE = setOf("pair_req", "pair_ok", "pair_no", "unpaired", "intro_ok", "introduce", "sleeping", "clip", "sync_index")
 private const val MAX_INTRODUCED = 64
 
 const val MAX_CLIP_IMAGE = 16 * 1024 * 1024

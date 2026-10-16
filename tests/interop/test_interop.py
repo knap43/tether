@@ -411,7 +411,12 @@ async def main(root: Path, cp: str):
         # --- a computer going to sleep: announced, or silent
         await A.before_sleep()
         await until(lambda: not A.is_connected(kid), what="sleep closes the session")
-        assert (await k.cmd(f"asleep {aid}", "ASLEEP")) == "ASLEEP true"
+        for _ in range(100):
+            if (await k.cmd(f"asleep {aid}", "ASLEEP")) == "ASLEEP true":
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("the phone doesn't show the computer asleep")
         await A._try_connect(kid, "127.0.0.1", 49391) if A.identity.id < kid else await k.cmd("reconnect")
         await until(lambda: A.is_connected(kid), timeout=15, what="back after sleep")
         for _ in range(100):  # the phone may register the session a moment after the computer
