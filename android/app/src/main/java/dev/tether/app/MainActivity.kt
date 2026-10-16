@@ -62,7 +62,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Hub.start(this)
-        screen = Screen(this, "Tether", back = false)
+        screen = Screen(this, "Tether", back = false, onRefresh = { done -> refreshAll(done) })
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -145,7 +145,7 @@ class MainActivity : AppCompatActivity() {
         val online = Hub.computers()
         screen.toolbar.subtitle = when {
             online.isNotEmpty() -> "Connected to ${online.joinToString { it.name }}"
-            node.peers.all().isNotEmpty() -> "Waiting for your computer"
+            node.peers.all().isNotEmpty() -> "No computer connected"
             else -> "Not paired yet"
         }
         renderDevice(node)
@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity() {
                 leading = ui.avatar(R.drawable.ic_phone),
                 trailing = listOf(
                     ui.iconButton(R.drawable.ic_edit, "Rename") {
-                        ui.prompt("Device name", node.settings.name, "Name shown on your computer") {
+                        ui.prompt("Device name", node.settings.name, "Name shown on your computers") {
                             node.settings.name = it
                             node.settings.save()
                             render()
@@ -189,7 +189,7 @@ class MainActivity : AppCompatActivity() {
         for (pp in node.pendingPairs()) {
             val card = ui.card(content)
             card.addView(ui.title("Pair with ${pp.name}?"))
-            card.addView(ui.help("Make sure your computer shows the same code."))
+            card.addView(ui.help("Make sure ${pp.name} shows the same code."))
             card.addView(
                 ui.text(code(pp.sas), M.style.TextAppearance_Material3_DisplaySmall, R.color.md_primary).apply {
                     gravity = Gravity.CENTER
@@ -198,7 +198,7 @@ class MainActivity : AppCompatActivity() {
                 },
             )
             if (pp.confirmed) {
-                card.addView(ui.help("Waiting for the computer to confirm…").apply { gravity = Gravity.CENTER })
+                card.addView(ui.help("Waiting for ${pp.name} to confirm…").apply { gravity = Gravity.CENTER })
                 card.addView(LinearProgressIndicator(this).apply { isIndeterminate = true })
             } else {
                 card.addView(
@@ -294,7 +294,7 @@ class MainActivity : AppCompatActivity() {
                 card.addView(
                     ui.row(
                         "Looking for computers…",
-                        "Start Tether on your computer, then run “tether pair” or open the Tether window.",
+                        "Start Tether on a computer, then run “tether pair” or open the Tether window.",
                         leading = ui.avatar(R.drawable.ic_search, active = false),
                     ),
                 )
@@ -345,18 +345,18 @@ class MainActivity : AppCompatActivity() {
         )
         card.addView(ui.fullWidth(ui.button("Send clipboard now", Ui.Kind.TONAL, R.drawable.ic_clipboard) { sendClipboardNow() }))
         if (TetherService.autoClipboardAvailable(this)) {
-            card.addView(ui.help("Automatic: anything you copy on the phone goes to your computer."))
+            card.addView(ui.help("Automatic: anything you copy on the phone goes to every connected computer."))
             return
         }
         card.addView(
             ui.help(
-                "Computer → phone is automatic. Android only lets apps read the clipboard while they're open, " +
-                    "so phone → computer uses the button above, the Quick Settings tile, or “Send to computer” " +
-                    "when you select text.",
+                "Computers → phone is automatic. Android only lets apps read the clipboard while they're open, " +
+                    "so phone → computers uses the button above, the Quick Settings tile, or “Send to computer” " +
+                    "when you select text. Either way it reaches every connected computer.",
             ).apply { setPadding(0, ui.dp(12), 0, 0) },
         )
         card.addView(
-            ui.help("For fully automatic sync, run this once from your computer (USB debugging on), then restart Tether:")
+            ui.help("For fully automatic sync, run this once from any computer (USB debugging on), then restart Tether:")
                 .apply { setPadding(0, ui.dp(8), 0, 0) },
         )
         val cmds = "adb shell pm grant $packageName android.permission.READ_LOGS\n" +
@@ -387,8 +387,8 @@ class MainActivity : AppCompatActivity() {
         if (!NotifListener.enabled(this)) {
             card.addView(
                 ui.row(
-                    "Show notifications on your computer",
-                    "Reply to messages from the desktop. Tether needs notification access for this.",
+                    "Show notifications on your computers",
+                    "Reply to messages from any of them. Tether needs notification access for this.",
                     leading = ui.avatar(R.drawable.ic_notifications, active = false),
                 ),
             )
@@ -403,8 +403,8 @@ class MainActivity : AppCompatActivity() {
         }
         card.addView(
             ui.switchRow(
-                "Show notifications on your computer",
-                "Choose apps in the Tether window's Settings on the computer",
+                "Show notifications on your computers",
+                "Each computer chooses which apps it shows, in its Tether window's Settings",
                 node.settings.forwardNotifications,
             ) {
                 node.settings.forwardNotifications = it
@@ -467,7 +467,7 @@ class MainActivity : AppCompatActivity() {
             warn.addView(
                 ui.row(
                     "Allow access to all files",
-                    "Needed so your computer can browse and sync folders.",
+                    "Needed so your computers can browse and sync folders.",
                     leading = ui.avatar(R.drawable.ic_lock),
                 ),
             )
@@ -483,8 +483,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val shared = ui.card(content)
-        shared.addView(ui.title("Shared with your computer"))
-        shared.addView(ui.help("Your computer can browse these. Its own folders appear in the Files app under its name."))
+        shared.addView(ui.title("Shared from this phone"))
+        shared.addView(
+            ui.help("Every paired computer can browse and edit these. Theirs appear in the Files app under their names."),
+        )
         for ((name, path) in node.settings.shares) {
             shared.addView(
                 ui.row(
@@ -506,7 +508,7 @@ class MainActivity : AppCompatActivity() {
 
         val synced = ui.card(content)
         synced.addView(ui.title("Synced folders"))
-        synced.addView(ui.help("Kept identical on both devices. Use the same name on the computer."))
+        synced.addView(ui.help("Kept identical on every device that syncs a folder with the same name."))
         for (f in node.settings.sync) {
             synced.addView(
                 ui.row(
@@ -599,7 +601,7 @@ class MainActivity : AppCompatActivity() {
         }
         pairDialog = ui.dialog()
             .setTitle("Pair with $name?")
-            .setMessage("Make sure your computer shows the same code.")
+            .setMessage("Make sure $name shows the same code.")
             .setView(codeView)
             .setPositiveButton("Codes match") { _, _ -> bg { Hub.node?.confirmPairing(id, true) } }
             .setNegativeButton("Cancel") { _, _ -> bg { Hub.node?.confirmPairing(id, false) } }
@@ -617,6 +619,21 @@ class MainActivity : AppCompatActivity() {
             "image" -> snack("Image sent")
             else -> snack("Clipboard sent")
         }
+    }
+
+    /** Pull to refresh: drop dead connections, reconnect, look for devices nearby, rescan synced folders. */
+    private fun refreshAll(done: () -> Unit) {
+        val node = Hub.node ?: return done()
+        Thread {
+            runCatching { node.checkConnections() }
+            runCatching { node.discovery.announce() }
+            runCatching { node.rescan() }
+            Thread.sleep(1_200) // let reconnections and beacon answers arrive
+            runOnUiThread {
+                if (!isFinishing) render()
+                done()
+            }
+        }.start()
     }
 
     private fun restartService() {
@@ -640,10 +657,10 @@ class MainActivity : AppCompatActivity() {
         val path = treeToPath(uri) ?: return snack("That location can't be synced")
         val suggested = path.trimEnd('/').substringAfterLast('/').lowercase()
             .replace(Regex("[^a-z0-9_-]"), "-").trim('-').ifEmpty { "folder" }
-        ui.prompt("Name this folder", suggested, "Same name on both devices", ok = "Sync") { raw ->
+        ui.prompt("Name this folder", suggested, "Use the same name on each device", ok = "Sync") { raw ->
             val id = raw.lowercase().replace(Regex("[^a-z0-9_-]"), "-")
             node.updateSyncFolders(node.settings.sync.filter { it.id != id } + SyncFolder(id, path))
-            snack("Now on your computer: tether sync add $id ~/path")
+            snack("Now add “$id” on each computer that should have it")
             render()
         }
     }
