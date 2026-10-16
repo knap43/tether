@@ -414,6 +414,10 @@ async def main(root: Path, cp: str):
         assert (await k.cmd(f"asleep {aid}", "ASLEEP")) == "ASLEEP true"
         await A._try_connect(kid, "127.0.0.1", 49391) if A.identity.id < kid else await k.cmd("reconnect")
         await until(lambda: A.is_connected(kid), timeout=15, what="back after sleep")
+        for _ in range(100):  # the phone may register the session a moment after the computer
+            if aid in await k.cmd("connected", "CONNECTED"):
+                break
+            await asyncio.sleep(0.1)
         assert (await k.cmd(f"asleep {aid}", "ASLEEP")) == "ASLEEP false"
         sa = A.sessions[kid]
         real = sa.channel._on_message
@@ -429,6 +433,10 @@ async def main(root: Path, cp: str):
         await until(lambda: not A.is_connected(kid), what="silent computer dropped")
         await k.cmd("reconnect")
         await until(lambda: A.is_connected(kid), timeout=15, what="reconnect after the check")
+        for _ in range(100):
+            if aid in await k.cmd("connected", "CONNECTED"):
+                break
+            await asyncio.sleep(0.1)
         print("ok  sleeping computer: announced (shown asleep) and silent (dropped by the check)")
 
         # --- reconnect
