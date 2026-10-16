@@ -39,7 +39,7 @@ def human(n) -> str:
 
 def device_subtitle(d: dict) -> str:
     if not d["connected"]:
-        return "Not connected"
+        return "Asleep" if d.get("asleep") else "Not connected"
     parts = ["Connected"]
     b = d.get("battery")
     if b:
@@ -323,6 +323,9 @@ class TetherWindow(Adw.ApplicationWindow):
             self.pending.update(st["pending"], self._pending_rows)
             self.pending.group.set_visible(bool(st["pending"]))
             self.nearby.update(st["discovered"], self._nearby_rows)
+            self.browse_list.update(
+                [{k: d.get(k) for k in ("id", "name", "type", "connected", "asleep", "sidebar")} for d in st["devices"]],
+                self._browse_rows)
             self.shares.update(st["shares"], self._share_rows)
             self.synced.update(st["sync"], self._sync_rows)
             self.saved_cmds.update(st["commands"], self._command_rows)
@@ -647,23 +650,16 @@ class TetherWindow(Adw.ApplicationWindow):
         received.add(self.download_row)
         page.add(received)
 
-        browse = Adw.PreferencesGroup(title="Phone Storage",
-                                      description="Browse a connected phone like any other folder.")
-        open_row = Adw.ActionRow(title="Open in Files", activatable=True)
-        open_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-        open_row.connect("activated", lambda *_: self.browse())
-        browse.add(open_row)
-        side_row = Adw.ActionRow(title="Files sidebar",
-                                 subtitle="Phones appear there by name. To add another device, use its ⋮ menu under Devices.")
-        browse.add(side_row)
-        page.add(browse)
+        self.browse_list = ListGroup("Your Devices' Files",
+                                     "Open a device's shared folders in Files, or keep it in the Files sidebar.")
+        page.add(self.browse_list.group)
 
-        self.shares = ListGroup("Shared With Your Phone", "Your phone can browse and edit these folders.")
+        self.shares = ListGroup("Shared From This Computer", "Every paired device can browse and edit these folders.")
         self.shares.group.set_header_suffix(icon_button("list-add-symbolic", "Share a Folder…", self.add_share))
         page.add(self.shares.group)
 
         self.synced = ListGroup("Synced Folders",
-                                "Kept identical on both devices. Give the folder the same name on the phone.")
+                                "Kept identical on every device that syncs a folder with the same name.")
         suffix = Gtk.Box(spacing=4)
         suffix.append(icon_button("view-refresh-symbolic", "Sync Now",
                                   lambda: self.call("rescan", ok_toast="Folders rescanned")))
@@ -671,6 +667,34 @@ class TetherWindow(Adw.ApplicationWindow):
         self.synced.group.set_header_suffix(suffix)
         page.add(self.synced.group)
         return page
+
+    def _browse_rows(self, devices: list) -> list:
+        if not devices:
+            return [placeholder_row("Pair a device to browse its files")]
+        rows = []
+        for d in devices:
+            online = d["connected"]
+            row = Adw.ActionRow(title=GLib.markup_escape_text(d["name"]),
+                                subtitle="Asleep" if d.get("asleep") else "Connected" if online else "Not connected",
+                                activatable=online)
+            icon = Gtk.Image.new_from_icon_name("phone-symbolic" if d.get("type") == "phone" else "computer-symbolic")
+            if not online:
+                icon.add_css_class("dim-label")
+            row.add_prefix(icon)
+            side = Gtk.Switch(active=bool(d.get("sidebar")), valign=Gtk.Align.CENTER,
+                              tooltip_text="Show in the Files sidebar")
+            side.connect("notify::active", lambda sw, _p, i=d["id"]: self.call(
+                "sidebar", device=i, on=sw.get_active(),
+                ok_toast="Added to the Files sidebar" if sw.get_active() else "Removed from the Files sidebar"))
+            side_box = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
+            side_box.append(Gtk.Label(label="Sidebar", css_classes=["dim-label", "caption"]))
+            side_box.append(side)
+            row.add_suffix(side_box)
+            if online:
+                row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+                row.connect("activated", lambda _r, i=d["id"]: self.browse(i))
+            rows.append(row)
+        return rows
 
     def _share_rows(self, shares: dict) -> list:
         if not shares:
@@ -727,7 +751,7 @@ class TetherWindow(Adw.ApplicationWindow):
             suggested = re.sub(r"[^a-z0-9_-]+", "-", os.path.basename(path.rstrip("/")).lower()).strip("-") or "folder"
             entry = Gtk.Entry(text=suggested, activates_default=True)
             dialog = Adw.AlertDialog(heading="Name This Folder",
-                                     body=f"{path}\n\nUse the same name when adding the folder on the phone.")
+                                     body=f"{path}\n\nOn each device that should share it, add a folder with this same name.")
             dialog.set_extra_child(entry)
             dialog.add_response("cancel", "Cancel")
             dialog.add_response("add", "Sync")
@@ -868,7 +892,7 @@ class TetherWindow(Adw.ApplicationWindow):
         page = Adw.PreferencesPage()
 
         device = Adw.PreferencesGroup(title="This Computer")
-        self.name_row = Adw.EntryRow(title="Name shown on your phone", show_apply_button=True)
+        self.name_row = Adw.EntryRow(title="Name shown on your other devices", show_apply_button=True)
         self.name_row.connect("apply", lambda r: r.get_text().strip() and self.call(
             "set", ok_toast="Renamed", key="name", value=r.get_text().strip()))
         device.add(self.name_row)
