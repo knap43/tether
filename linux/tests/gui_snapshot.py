@@ -94,8 +94,11 @@ B = daemon("B", 52391, {"display": "Pixel 8", "device_type": "phone"})
 C = daemon("C", 52491, {"display": "Graphene test phone", "device_type": "phone"})
 ctl(A, "status")
 ctl(B, "status")
+D = daemon("D", 52591, {"display": "thinkpad", "shares": {"Home": str(ROOT)}})
 ctl(C, "status")
+ctl(D, "status")
 pair(A, B, 52391)
+pair(A, D, 52591)
 
 app = TetherApp(Paths(str(A)))
 results = []
@@ -156,7 +159,7 @@ def scenario():
     shot(win, "pair-dialog")
     win.pair_dialogs[c_id].emit("response", "accept")
     ctl(C, "pair_confirm", device=res["device"], accept=True)
-    assert wait_for(lambda: win.status and len(win.status["devices"]) == 2), "second device did not pair"
+    assert wait_for(lambda: win.status and len(win.status["devices"]) == 3), "second phone did not pair"
     results.append("pairing from dialog")
 
     # A large transfer shows a progress row.
@@ -227,7 +230,7 @@ try:
 finally:
     for p in PROCS:
         p.terminate()
-    for name in ("A", "B", "C"):
+    for name in ("A", "B", "C", "D"):
         log = ROOT / name / "log"
         if log.exists() and ("Traceback" in log.read_text() or os.environ.get("SHOW_LOGS")):
             print(f"--- daemon {name} log ---\n" + log.read_text()[-3000:])
