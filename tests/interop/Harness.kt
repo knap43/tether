@@ -131,6 +131,11 @@ fun main(args: Array<String>) {
                     emit("OK")
                 }
                 "connected" -> emit("CONNECTED " + node.connected().joinToString(",") { it.peerId })
+                "asleep" -> emit("ASLEEP ${node.isAsleep(parts[1])}")
+                "check" -> {
+                    node.checkConnections()
+                    emit("CHECKED " + node.connected().joinToString(",") { it.peerId })
+                }
                 "rescan" -> {
                     node.rescan()
                     emit("OK")

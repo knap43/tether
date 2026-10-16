@@ -50,6 +50,7 @@ class TetherService : Service() {
         clipboard = getSystemService(ClipboardManager::class.java)
         clipboard?.addPrimaryClipChangedListener(clipListener)
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_ON))
         startLogcatWatcher()
     }
 
@@ -80,6 +81,7 @@ class TetherService : Service() {
     override fun onDestroy() {
         clipboard?.removePrimaryClipChangedListener(clipListener)
         runCatching { unregisterReceiver(batteryReceiver) }
+        runCatching { unregisterReceiver(screenReceiver) }
         MediaNotifier.clear(this)
         logcat?.destroy()
         logcat = null
@@ -128,6 +130,13 @@ class TetherService : Service() {
     /** Works only while one of our activities has focus (Android 10+ restriction). */
     private fun readClipboardInForeground() {
         ClipCapture.capture(this, force = false)
+    }
+
+    /** The screen came on: find out at once which computers are really there (Doze froze our timers). */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            Hub.node?.let { n -> n.pool.execute { runCatching { n.checkConnections() } } }
+        }
     }
 
     private val batteryReceiver = object : BroadcastReceiver() {

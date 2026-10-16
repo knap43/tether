@@ -82,6 +82,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         Hub.addListener(listener)
         render()
+        Hub.node?.let { n -> n.pool.execute { runCatching { n.checkConnections() } } }
     }
 
     override fun onPause() {
@@ -235,7 +236,11 @@ class MainActivity : AppCompatActivity() {
             card.addView(
                 ui.row(
                     p.name,
-                    if (online) "Connected" else "Not connected",
+                    when {
+                        online -> "Connected"
+                        node.isAsleep(p.id) -> "Asleep"
+                        else -> "Not connected"
+                    },
                     leading = ui.avatar(R.drawable.ic_computer, active = online),
                     trailing = listOf(more),
                 ),

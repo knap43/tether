@@ -14,7 +14,7 @@ Your Android phone and your Linux computer or Mac, joined on the home network:
 - **Battery** — the phone's charge in the top bar and the window, with a low-battery warning.
 - **Images on the clipboard** — copy a screenshot on one device, paste it on the other.
 - **Transfer progress** — progress bars with Cancel on both sides.
-- **Wake-on-LAN** — switch the computer on from the phone.
+- **Wake-on-LAN** — switch the computer on from the phone, which shows a sleeping computer as **Asleep**.
 
 Everything travels over an authenticated, encrypted channel of its own (see `PROTOCOL.md`). No cloud, no accounts, no Google services — it runs fine on LineageOS and GrapheneOS.
 
@@ -106,6 +106,8 @@ To also type arbitrary commands on the phone, run `tether set remote_shell on` (
 ### Wake-on-LAN
 
 Whenever the phone connects, the computer tells it the hardware address of each network card. When the computer is asleep or off, its card in the app shows **Wake up**.
+
+A Linux computer tells its devices just before it suspends, so the phone shows it as **Asleep** right away, and it reconnects on its own when it wakes. A computer that drops off without a word (a Mac, a power cut) is caught when you turn the phone's screen on or open the app.
 
 On the computer, check and enable it once (Settings → Wake on LAN in the Tether window does the same):
 

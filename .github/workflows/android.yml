@@ -38,7 +38,12 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          set -o pipefail
+          if ! ./gradlew --no-daemon assembleDebug 2>&1 | tee /tmp/build.log; then
+            # Compiler errors as annotations, readable through the API.
+            grep -E "^e: |error:|What went wrong" -A3 /tmp/build.log | head -40 | while IFS= read -r l; do echo "::error title=Build::$l"; done
+            exit 1
+          fi
 
       - uses: actions/setup-python@v5
         with:

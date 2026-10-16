@@ -126,6 +126,12 @@ lifts the block.
 
 `ping` → `pong` (sent every 30 s; a session silent for 90 s is closed).
 
+`{"t": "sleeping"}` — the sender is about to suspend; the receiver closes the session
+and shows the device as asleep until it connects again. A device may also check a
+quiet session at any time by sending `ping` and closing it if nothing arrives within
+a few seconds (phones do this when the screen comes on, since a suspended computer
+leaves the socket open and their own timers stand still in Doze).
+
 ### Requests
 
 Requests carry `"req": <int>`; the answer is
