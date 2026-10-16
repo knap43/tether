@@ -65,7 +65,7 @@ object Transfers {
     }
 }
 
-/** Target of the system share sheet: files go to the computer, plain text to its clipboard. */
+/** Target of the system share sheet: files go to a computer (asked when several are connected), text to their clipboards. */
 class ShareActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,7 +76,7 @@ class ShareActivity : AppCompatActivity() {
             minimumWidth = (resources.displayMetrics.widthPixels * 0.8).toInt()
             addView(ui.avatar(R.drawable.ic_upload))
             addView(
-                ui.text("Sending to your computer", MR.style.TextAppearance_Material3_TitleLarge, R.color.md_on_surface)
+                ui.text("Sending…", MR.style.TextAppearance_Material3_TitleLarge, R.color.md_on_surface)
                     .apply { setPadding(0, ui.dp(16), 0, ui.dp(16)) },
             )
             addView(LinearProgressIndicator(this@ShareActivity).apply { isIndeterminate = true })
@@ -92,12 +92,32 @@ class ShareActivity : AppCompatActivity() {
                 pc == null -> finishWith("No computer connected")
                 uris.isEmpty() && !text.isNullOrEmpty() -> {
                     Hub.node?.onLocalClipboard(text, force = true)
-                    finishWith("Sent to your computer's clipboard")
+                    finishWith(clipboardSentMessage())
                 }
                 uris.isEmpty() -> finishWith("Nothing to send")
-                else -> Transfers.send(this, pc.peerId, uris) { _, msg -> finishWith(msg) }
+                else -> {
+                    val all = Hub.computers()
+                    if (all.size <= 1) {
+                        Transfers.send(this, pc.peerId, uris) { _, msg -> finishWith(msg) }
+                    } else {
+                        runOnUiThread { chooseComputer(ui, all.map { it.peerId to it.name }, uris) }
+                    }
+                }
             }
         }.start()
+    }
+
+    /** Several computers are connected: the user picks where the files go. */
+    private fun chooseComputer(ui: Ui, computers: List<Pair<String, String>>, uris: List<Uri>) {
+        if (isFinishing) return
+        ui.dialog()
+            .setTitle("Send to")
+            .setItems(computers.map { it.second }.toTypedArray()) { _, which ->
+                Thread { Transfers.send(this, computers[which].first, uris) { _, msg -> finishWith(msg) } }.start()
+            }
+            .setNegativeButton("Cancel") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
     }
 
     private fun finishWith(msg: String) = runOnUiThread {
@@ -136,7 +156,7 @@ class ProcessTextActivity : Activity() {
                 pc == null -> "No computer connected"
                 else -> {
                     Hub.node?.onLocalClipboard(text, force = true)
-                    "Sent to your computer's clipboard"
+                    clipboardSentMessage()
                 }
             }
             runOnUiThread {
@@ -174,4 +194,13 @@ class ClipboardActivity : Activity() {
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+}
+
+/** What to say once text went to the clipboard of every connected computer. */
+fun clipboardSentMessage(): String {
+    val names = Hub.computers().map { it.name }
+    return when (names.size) {
+        0, 1 -> "Sent to ${names.firstOrNull() ?: "the computer"}'s clipboard"
+        else -> "Sent to ${names.size} computers' clipboards"
+    }
 }

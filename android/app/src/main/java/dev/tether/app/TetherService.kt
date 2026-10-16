@@ -204,7 +204,7 @@ class TetherService : Service() {
             val text = when {
                 Hub.node == null -> "Starting…"
                 connected.isNotEmpty() -> "Connected to ${connected.joinToString { it.name }}"
-                Hub.node?.peers?.all()?.isNotEmpty() == true -> "Waiting for your computer"
+                Hub.node?.peers?.all()?.isNotEmpty() == true -> "No computer connected"
                 else -> "Not paired yet — open the app to pair"
             }
             val clipIntent = PendingIntent.getActivity(

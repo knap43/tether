@@ -18,6 +18,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.NestedScrollView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
@@ -281,7 +282,14 @@ class Ui(val ctx: Context) {
  * A screen with a top app bar and a body that respects the system bars, display
  * cutouts and the keyboard (Android 15 draws apps edge to edge).
  */
-class Screen(activity: AppCompatActivity, title: String, back: Boolean, scrolling: Boolean = true) {
+class Screen(
+    activity: AppCompatActivity,
+    title: String,
+    back: Boolean,
+    scrolling: Boolean = true,
+    /** Pull to refresh (scrolling screens): called on the main thread; call `done` when finished. */
+    onRefresh: ((done: () -> Unit) -> Unit)? = null,
+) {
     val ui = Ui(activity)
     val root = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
@@ -308,6 +316,9 @@ class Screen(activity: AppCompatActivity, title: String, back: Boolean, scrollin
     }
     private val body: View
 
+    /** The pull-to-refresh wrapper, when the screen has one. */
+    val refresher: SwipeRefreshLayout?
+
     init {
         WindowCompat.setDecorFitsSystemWindows(activity.window, false)
         root.addView(appBar, LinearLayout.LayoutParams(MATCH, WRAP))
@@ -319,7 +330,17 @@ class Screen(activity: AppCompatActivity, title: String, back: Boolean, scrollin
         } else {
             content
         }
-        root.addView(body, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        refresher = if (scrolling && onRefresh != null) {
+            SwipeRefreshLayout(activity).apply {
+                setColorSchemeColors(activity.md(R.color.md_primary))
+                setProgressBackgroundColorSchemeColor(activity.md(R.color.md_surface_container_high))
+                addView(body, ViewGroup.LayoutParams(MATCH, MATCH))
+                setOnRefreshListener { onRefresh { post { isRefreshing = false } } }
+            }
+        } else {
+            null
+        }
+        root.addView(refresher ?: body, LinearLayout.LayoutParams(MATCH, 0, 1f))
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())

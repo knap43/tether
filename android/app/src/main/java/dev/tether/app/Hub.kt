@@ -101,10 +101,10 @@ object Notifications {
             NotificationChannel(CH_EVENTS, "Files and pairing", NotificationManager.IMPORTANCE_DEFAULT),
         )
         nm.createNotificationChannel(
-            NotificationChannel(CH_REMOTE, "Sent from your computer", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(CH_REMOTE, "Sent from your computers", NotificationManager.IMPORTANCE_HIGH),
         )
         nm.createNotificationChannel(
-            NotificationChannel(CH_MEDIA, "Media on your computer", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CH_MEDIA, "Media on your computers", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
             },
         )
@@ -114,7 +114,7 @@ object Notifications {
             },
         )
         nm.createNotificationChannel(
-            NotificationChannel(CH_AUDIO, "Audio streaming to your computer", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CH_AUDIO, "Audio streaming to a computer", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
             },
         )
@@ -201,7 +201,7 @@ class AndroidPlatform(private val context: Context) : Platform {
             }
             is NodeEvent.FileReceived -> {
                 MediaScannerConnection.scanFile(context, arrayOf(event.file.path), null, null)
-                val from = Hub.node?.peers?.get(event.from)?.name ?: "your computer"
+                val from = Hub.node?.peers?.get(event.from)?.name ?: "a computer"
                 Notifications.post(context, "File from $from", "${event.file.name} saved to Download/Tether")
             }
             is NodeEvent.Notification ->
