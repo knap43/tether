@@ -104,11 +104,11 @@ class Channel(
 
     @Volatile
     var closed = false
+        private set
 
     /** When a frame last arrived (System.nanoTime). */
     @Volatile
     var lastRx = System.nanoTime()
-        private set
         private set
 
     /** Why the connection ended, once it has (for error messages). */
