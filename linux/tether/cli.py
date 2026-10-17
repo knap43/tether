@@ -211,6 +211,7 @@ def _show_progress(paths):
 
 
 def cmd_send(paths, args):
+    quiet = args.pick or args.notify  # started from Files or a menu: report by notification
     if args.pick:
         args.files = pick_files()
         if not args.files:
@@ -218,16 +219,22 @@ def cmd_send(paths, args):
     if not args.files:
         die("nothing to send")
     files = [os.path.abspath(p) for p in args.files]
-    for p in files:
-        if not os.path.isfile(p):
-            die(f"{p} is not a file")
-    if args.pick or args.notify:
+    folders = [p for p in files if not os.path.isfile(p)]
+    if folders:
+        msg = f"{os.path.basename(folders[0]) or folders[0]} is a folder" if os.path.isdir(folders[0]) \
+            else f"{folders[0]} is not a file"
+        if quiet:
+            notify("Nothing sent", msg + "; Tether sends files only")
+            return
+        die(msg)
+    if quiet:
         ctl = Ctl(paths)
         ctl.f.write(json.dumps({"cmd": "send", "device": args.device, "paths": files}).encode() + b"\n")
         ctl.f.flush()
         res = json.loads(ctl.f.readline() or b"{}")
         if res.get("ok"):
-            notify("Sent to phone", ", ".join(os.path.basename(p) for p in files))
+            to = res.get("device_name") or "the device"
+            notify(f"Sent to {to}", ", ".join(os.path.basename(p) for p in files))
         else:
             notify("Sending failed", res.get("error", "unknown error"))
         return

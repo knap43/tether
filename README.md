@@ -34,7 +34,7 @@ cd linux
 ./install.sh
 ```
 
-This installs the daemon to `~/.local/lib/tether` with a `tether` command in `~/.local/bin`, enables the `tether` systemd user service, installs the GNOME Shell extension (a phone icon in the top bar), and adds **Scripts → Send to Phone** to the Files right-click menu. Each phone you pair appears in the Files sidebar under its own name. It asks for `sudo` only to install `python-cryptography` and `python-aiohttp`, and to open ports 47290/udp and 47291/tcp if a firewall is active.
+This installs the daemon to `~/.local/lib/tether` with a `tether` command in `~/.local/bin`, enables the `tether` systemd user service, and installs the GNOME Shell extension (a phone icon in the top bar). Each device you pair gets its own **Scripts → Send to *name*** in the Files right-click menu. It asks for `sudo` only to install `python-cryptography` and `python-aiohttp`, and to open ports 47290/udp and 47291/tcp if a firewall is active.
 
 On Wayland a newly installed extension takes effect after you log out and back in; then run `gnome-extensions enable tether@tether.local` if the installer couldn't.
 
@@ -75,8 +75,8 @@ Pair a second computer with the first, and the first **introduces** it to your p
 | | On the computer | On the phone |
 |---|---|---|
 | Clipboard | Automatic | Computer → phone automatic; phone → computer via the app, the **Send clipboard** Quick Settings tile, the notification button, or **Send to computer** in the text-selection menu (or automatic — see below) |
-| Send files | Right-click → Scripts → Send to Phone; top-bar menu → Send files…; `tether send FILE…` | Share sheet → **Send to computer**; **Send files** in the app |
-| Browse | Files sidebar → the phone's name, or `tether mount`. Another computer: **Browse Files** beside it in the Tether window, or `tether mount laptop`. To keep any device in the sidebar: **⋮ → Show in Files Sidebar** beside it, or `tether sidebar add laptop` (`tether sidebar` lists them, `tether sidebar remove NAME` takes one out) | **Browse** next to each computer in the app (open, download, upload, rename, delete), or Files app → the computer's name |
+| Send files | Right-click → Scripts → **Send to *device***; top-bar menu → Send files…; `tether send -d NAME FILE…` | Share sheet → **Send to computer**; **Send files** in the app |
+| Browse | **Browse Files** beside a device in the Tether window, or `tether mount NAME`. Bookmark it in Files like any folder; or let Tether keep it in the sidebar under the device's current name: the **Sidebar** switch under Folders, or `tether sidebar add NAME` | **Browse** next to each computer in the app (open, download, upload, rename, delete), or Files app → the computer's name |
 | Sync a folder | `tether sync add camera ~/Pictures/Phone` | **Sync a folder** → pick the folder → name it `camera` |
 
 A sync folder must have the **same name** on both devices. Conflicting edits keep both versions: the older one is renamed `name.conflict-YYYYmmdd-HHMMSS.ext` and synced too. Shared folders for browsing are set with `tether share add NAME PATH` (default: your home folder) and **Share a folder** in the app (default: internal storage).

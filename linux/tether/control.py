@@ -114,11 +114,15 @@ class ControlServer:
             await n.unpair(n_resolve(n, req["device"]))
             return None
         if cmd == "send":
+            if req.get("device"):
+                paired = n_resolve(n, req["device"])
+                if not n.is_connected(paired):
+                    raise ProtoError("not_found", f"{n.peers.get(paired)['name']} isn't connected")
             target = n_resolve(n, req.get("device"), connected=True)
             sent = []
             for p in req["paths"]:
                 sent.append(await n.send_file(target, p))
-            return {"sent": sent}
+            return {"sent": sent, "device_name": n.peers.get(target)["name"]}
         if cmd == "clip_send":
             text = req.get("text")
             if not isinstance(text, str):
