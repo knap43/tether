@@ -7,6 +7,7 @@ Run:  python3 tests/test_web.py
 """
 
 import asyncio
+import os
 import shutil
 import sys
 import tempfile
@@ -80,29 +81,43 @@ async def main(root: Path):
         assert r.status == 201 and (lap_share / "from-pc.txt").read_bytes() == b"pc"
     print("ok  the phone and the PC browse the laptop")
 
-    # --- the Files sidebar on the PC: the phone by name, the laptop on request, renames followed
+    # --- the Files sidebar on the PC: nothing unasked, the laptop on request, renames followed,
+    #     and a bookmark the user made by hand is never Tether's to move or remove
     bm = PC.paths.bookmarks_file
     root_url = PC.dav_root()
 
     def tether_lines():
         return [l for l in bm.read_text().splitlines() if l.startswith(root_url)] if bm.exists() else []
 
-    assert tether_lines() == [f"{root_url}PH/ PH"], tether_lines()
-    bm.write_text("file:///home/me/Music Music\n" + bm.read_text() + "dav://127.0.0.1:47292/oldtoken/Phone/ Phone (Tether)\n")
+    assert tether_lines() == [], tether_lines()
+    mine = f"{root_url}PH/Internal/ My phone"
+    bm.write_text("file:///home/me/Music Music\n" + mine + "\n" + "dav://127.0.0.1:47292/oldtoken/Phone/ Phone (Tether)\n")
     PC.set_sidebar(lap, True)
     lines = bm.read_text().splitlines()
-    assert lines == ["file:///home/me/Music Music", f"{root_url}PH/ PH", f"{root_url}LAP/ LAP"], lines
+    assert lines == ["file:///home/me/Music Music", mine, f"{root_url}LAP/ LAP"], lines
     LAP.cfg["name"] = "ThinkPad"
     PC.sessions[lap].channel.close()
     await until(lambda: not PC.is_connected(lap) and not LAP.is_connected(PC.identity.id), what="laptop drop")
     lo, hi = (PC, LAP) if PC.identity.id < lap else (LAP, PC)
     await lo._try_connect(hi.identity.id, "127.0.0.1", 49391 if hi is LAP else 49291)
     await until(lambda: f"{root_url}ThinkPad/ ThinkPad" in tether_lines(), what="sidebar follows a rename")
+    assert mine in bm.read_text().splitlines() and f"{root_url}LAP/ LAP" not in tether_lines()
     async with aiohttp.ClientSession() as http:
         r = await http.request("PROPFIND", f"{root_url}ThinkPad/".replace("dav://", "http://"), headers={"Depth": "1"})
         assert r.status == 207 and "Home" in await r.text()
     assert [d["sidebar"] for d in PC.status()["devices"] if d["id"] == lap] == [True]
-    print("ok  Files sidebar: devices by name, chosen ones only, renames followed, other bookmarks kept")
+    PC.set_sidebar(lap, False)
+    assert bm.read_text().splitlines() == ["file:///home/me/Music Music", mine], bm.read_text()
+
+    # --- Files scripts: one “Send to …” per paired device, following renames; others left alone
+    sd = PC.paths.scripts_dir
+    (sd / "My own script").write_text("#!/bin/sh\necho hi\n")
+    (sd / "Send to Phone").write_text('#!/bin/sh\nexec "$HOME/.local/bin/tether" send --notify "$@"\n')
+    PC.sync_desktop()
+    assert sorted(p.name for p in sd.iterdir()) == ["My own script", "Send to PH", "Send to ThinkPad"], list(sd.iterdir())
+    assert f"--device {lap}" in (sd / "Send to ThinkPad").read_text()
+    assert os.access(sd / "Send to PH", os.X_OK)
+    print("ok  Files sidebar opt-in and Files scripts per device; the user's own entries untouched")
 
     # --- the PC goes to sleep: the others hear about it at once, and it comes back on waking
     await PC.before_sleep()

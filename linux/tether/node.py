@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from . import bookmarks, clipboard
+from . import bookmarks, clipboard, nautilus
 from .channel import CHUNK, Channel, StreamAborted
 from .config import Config, Introductions, Paths, PeerStore
 from .crypto import HandshakeError, Identity, b64d, b64e, handshake
@@ -234,7 +234,7 @@ class Node:
 
             self.dav = DavServer(self)
             await self.dav.start()
-            self.sync_bookmarks()
+        self.sync_desktop()
         self.spawn(self._scan_loop())
         self.spawn(self._reconnect_loop())
         self.spawn(self.media.watch())
@@ -280,7 +280,7 @@ class Node:
                 return None
             self.asleep.discard(s.peer_id)
             if self.peers.set_name(s.peer_id, s.name):
-                self.sync_bookmarks()  # renamed: the sidebar follows
+                self.sync_desktop()  # renamed: the sidebar and the Files scripts follow
             if is_client:
                 self.peers.set_addr(s.peer_id, addr, s.name)
             self.spawn(self._on_trusted(s))
@@ -502,9 +502,7 @@ class Node:
         if addr is None and intro and intro.get("addr"):
             addr = intro["addr"]
         self.peers.add(s.peer_id, s.name, b64e(s.hs.peer_spki), s.type, addr)
-        if s.type == "phone" and isinstance(self.cfg["sidebar"], list) and s.peer_id not in self.cfg["sidebar"]:
-            self.cfg["sidebar"] = self.cfg["sidebar"] + [s.peer_id]  # phones go in the sidebar by default
-        self.sync_bookmarks()
+        self.sync_desktop()
         s.trusted = True
         self.untrusted.discard(s)
         # Both sides may have dialled; the shared rule keeps the same session on each end.
@@ -623,7 +621,7 @@ class Node:
         self.intros.block(peer_id)  # so other devices don't bring it back
         if isinstance(self.cfg["sidebar"], list) and peer_id in self.cfg["sidebar"]:
             self.cfg["sidebar"] = [i for i in self.cfg["sidebar"] if i != peer_id]
-        self.sync_bookmarks()
+        self.sync_desktop()
         for f in self.paths.sync_dir.glob(f"base-{peer_id[:16]}-*.json"):
             f.unlink(missing_ok=True)
         self.emit_status()
@@ -1246,11 +1244,16 @@ class Node:
         return f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/"
 
     def sidebar_ids(self) -> list[str]:
-        ids = self.cfg["sidebar"]
-        if not isinstance(ids, list):  # first run of this version: the phones, as before
-            ids = [pid for pid, p in self.peers.peers.items() if p.get("type") == "phone"]
-            self.cfg["sidebar"] = ids
+        ids = self.cfg["sidebar"] if isinstance(self.cfg["sidebar"], list) else []
         return [i for i in ids if i in self.peers]
+
+    def sync_desktop(self) -> None:
+        """Keeps the Files sidebar entries and the “Send to …” scripts in step with paired devices."""
+        self.sync_bookmarks()
+        try:
+            nautilus.sync(self.paths.scripts_dir, [(pid, p["name"]) for pid, p in self.peers.peers.items()])
+        except OSError as e:
+            log.warning("could not update the Files scripts: %s", e)
 
     def sync_bookmarks(self) -> None:
         """Writes one Files bookmark per chosen device, labelled with the device's name."""
@@ -1264,8 +1267,12 @@ class Node:
             name = self.peers.get(pid)["name"]
             shown = name if names.count(name) == 1 else f"{name} ({pid[:6]})"
             wanted.append((self.dav_root() + quote(labels[pid]) + "/", shown))
+        written = self.cfg["sidebar_written"]
         try:
-            bookmarks.sync(self.paths.bookmarks_file, self.dav_root(), wanted)
+            owned = bookmarks.sync(self.paths.bookmarks_file, self.dav_root(), wanted,
+                                   set(written) if isinstance(written, list) else None)
+            if written != owned:
+                self.cfg["sidebar_written"] = owned
         except OSError as e:
             log.warning("could not update the Files sidebar: %s", e)
 

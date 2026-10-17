@@ -8,7 +8,6 @@ bin="$HOME/.local/bin"
 units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 ext_uuid="tether@tether.local"
 ext_dir="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$ext_uuid"
-scripts="${XDG_DATA_HOME:-$HOME/.local/share}/nautilus/scripts"
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
@@ -65,10 +64,7 @@ sed "s|@BIN@|$bin/tether|" "$here/desktop/dev.tether.Tether.desktop" > "$data/ap
 cp "$here/desktop/dev.tether.Tether.svg" "$data/icons/hicolor/scalable/apps/"
 update-desktop-database "$data/applications" 2>/dev/null || true
 
-say "Adding “Send to Phone” to the Files right-click menu"
-mkdir -p "$scripts"
-cp "$here/nautilus/Send to Phone" "$scripts/"
-chmod +x "$scripts/Send to Phone"
+# The service writes Files → Scripts → “Send to <device>”, one per paired device.
 
 
 if systemctl is-active --quiet firewalld 2>/dev/null; then
