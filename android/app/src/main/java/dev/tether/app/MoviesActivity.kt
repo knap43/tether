@@ -143,7 +143,7 @@ class MoviesActivity : AppCompatActivity() {
     private fun load(target: String, toTop: Boolean) {
         request({ node.moviesList(peer, target) }) { folder ->
             path = target
-            val resume = folder.resume.map { Row.Film(it, showFolder = true) }
+            val resume = folder.resume.take(MAX_CONTINUE).map { Row.Film(it, showFolder = true) }
             show(
                 (if (resume.isEmpty()) emptyList() else listOf(Row.Heading("Continue watching")) + resume + Row.Heading("All movies")) +
                     folder.entries.map { Row.Film(it, showFolder = false) },
@@ -292,6 +292,7 @@ class MoviesActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PEER = "peer"
         private const val STATE_PATH = "path"
+        private const val MAX_CONTINUE = 3
         private const val SEARCH_DELAY_MS = 250L
         private const val BAR_STEPS = 1000
         private const val HEADING = 0
