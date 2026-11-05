@@ -82,6 +82,7 @@ DEFAULTS = {
     "phone_play": True,
     "phone_remote": False,  # the phone may use the mouse and keyboard
     "music_dir": "",  # the folder the phone browses; empty means the desktop's own Music folder
+    "movies_dir": "",  # likewise; empty means ~/Movies, else the desktop's own Videos folder
     "accept_introductions": True,
     "sidebar": [],  # device ids Tether keeps in the Files sidebar (opt-in)
     "sidebar_written": None,  # bookmark URLs Tether wrote; None until this version first runs

@@ -292,6 +292,22 @@ is `{"playing": false}`, or `playing`, `title`, `artist`, `album`, `paused`,
 while the player is starting. Starting direct play stops the music, and the
 other way round.
 
+### Movies (phone chooses, desktop plays)
+
+The desktop's movies folder is browsed like the music folder, with paths relative
+to it. The film plays in the direct-play window, so `music_state`, `music_cmd` and
+`play_state` steer and report it. The desktop logs how far each film was watched.
+
+| request | fields | answer |
+|---|---|---|
+| `movies_list` | `path` | `root`, `entries`, folders first, videos only; at the top of the folder also `continue`, films left part way through, latest first |
+| `movies_search` | `query` | `entries`: up to 200 films from the whole folder whose path holds all the query's words, ignoring case, accents and punctuation |
+| `movies_play` | `path`, `resume` | `start`, the second it opens at: where it was left if `resume`, else 0 |
+
+An entry is `{"name", "path", "dir", "size"}`, and for a film left part way through
+also `position` and `length` (seconds), or for one seen to the end (95%), `finished`
+and `length`. Refused like direct play: `denied`, `unsupported`.
+
 ### Remote input (phone → desktop)
 
 `{"t": "remote_open", "req": n}` asks to use the mouse and keyboard, answered

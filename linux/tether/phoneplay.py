@@ -75,14 +75,14 @@ def open_in_browser(url: str) -> bool:
 class Player(MpvControl):
     """An mpv window: fullscreen for video, small for music."""
 
-    def __init__(self, targets: list[str], title: str, fullscreen: bool = True):
+    def __init__(self, targets: list[str], title: str, fullscreen: bool = True, start: float = 0):
         super().__init__("player")
         self.log_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", f"tether-player-{os.getpid()}.log")
         # The window waits for the first frame: a link takes many seconds to open, and a black screen says nothing.
         cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes", "--keep-open=no",
                f"--ytdl-format={YTDL_FORMAT}", f"--ytdl-raw-options-append=extractor-args={YTDL_CLIENTS}",
                "--ytdl-raw-options-append=no-playlist=", f"--log-file={self.log_path}",
-               f"--input-ipc-server={self.socket}", "--", *targets]
+               f"--input-ipc-server={self.socket}", f"--start={start}", "--", *targets]
         self.proc = subprocess.Popen(cmd, env={**display_env(), **proxy_env()}, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 

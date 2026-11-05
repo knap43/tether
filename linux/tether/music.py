@@ -16,19 +16,23 @@ AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".m4b", ".aac", 
 MAX_QUEUE = 5000
 
 
-def music_dir(configured: str | None = None) -> Path:
-    """The configured folder, else the desktop's own idea of it (user-dirs.dirs), else ~/Music."""
+def user_dir(configured: str | None, xdg_key: str, fallback: str) -> Path:
+    """The configured folder, else the desktop's own idea of it (user-dirs.dirs), else the usual place in the home folder."""
     if configured:
         return Path(configured).expanduser()
     home = Path.home()
     conf = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "user-dirs.dirs"
     try:
-        m = re.search(r'^XDG_MUSIC_DIR="([^"]+)"', conf.read_text(), re.M)
+        m = re.search(rf'^{xdg_key}="([^"]+)"', conf.read_text(), re.M)
     except OSError:
         m = None
     if m and m[1].replace("$HOME", str(home)).rstrip("/") != str(home):
         return Path(m[1].replace("$HOME", str(home)))
-    return home / "Music"
+    return home / fallback
+
+
+def music_dir(configured: str | None = None) -> Path:
+    return user_dir(configured, "XDG_MUSIC_DIR", "Music")
 
 
 def resolve(root: Path, path) -> Path:
@@ -52,8 +56,8 @@ def _order(name: str):
     return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
 
 
-def list_folder(root: Path, path) -> list[dict]:
-    """Folders first, then tracks; everything else is left out."""
+def list_folder(root: Path, path, keep=_is_track) -> list[dict]:
+    """Folders first, then the files worth showing; everything else is left out."""
     folder = resolve(root, path)
     if not folder.is_dir():
         raise ProtoError("is_file")
@@ -65,7 +69,7 @@ def list_folder(root: Path, path) -> list[dict]:
             try:
                 if e.is_dir():
                     entries.append({"name": e.name, "dir": True})
-                elif _is_track(Path(e.name)):
+                elif keep(Path(e.name)):
                     entries.append({"name": e.name, "dir": False, "size": e.stat().st_size})
             except OSError:
                 continue

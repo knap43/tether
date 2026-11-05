@@ -513,7 +513,7 @@ def main(argv=None):
 
     p = sub.add_parser("set", help="change a setting: name, clipboard, download_dir, scan_interval, "
                                    "remote_shell, command_timeout, notifications, phone_audio, phone_screen, "
-                                   "screen_sync_ms, phone_play, phone_remote, music_dir")
+                                   "screen_sync_ms, phone_play, phone_remote, music_dir, movies_dir")
     p.add_argument("key")
     p.add_argument("value")
     p.set_defaults(fn=cmd_set)

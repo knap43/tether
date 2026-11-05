@@ -26,6 +26,7 @@ from .fsops import TMP_PREFIX, Shares
 from .media import Media
 from .sleepwatch import SleepWatch
 from . import phoneaudio
+from . import movies
 from . import music
 from . import phoneplay
 from . import remoteinput
@@ -43,6 +44,8 @@ MAX_OUTPUT = 64 * 1024
 AUDIO_ASK_TIMEOUT = 90  # how long the phone has to accept a request to stream its audio or screen
 DEFAULT_PORT = 47291
 MAX_INTRODUCED = 64
+PROGRESS_SAMPLE_S = 5  # how often a playing film's position is noted
+PROGRESS_SAVE_S = 30  # and how often that reaches the disk, besides when it ends
 
 
 def user_shell() -> str:
@@ -215,6 +218,7 @@ class Node:
         self.screen_sink = phonescreen.ViewerSink
         self.player = None  # what the phone asked us to play: (Player, FileServer or None, session)
         self.music = None  # the MusicPlayer the phone is steering
+        self.movie_progress = movies.Progress(self.paths.data_dir / "movie_progress.json")
         self.play_peer = None  # the phone told about what's playing
         self.remote = None  # (RemoteInput, session) while a phone is using the mouse and keyboard
         self.remote_input = remoteinput.RemoteInput
@@ -1320,10 +1324,10 @@ class Node:
             raise
         await s.channel.reply(msg)
 
-    async def _start_player(self, s, targets, title, server=None, fullscreen=True) -> None:
+    async def _start_player(self, s, targets, title, server=None, fullscreen=True, **options) -> None:
         await self._stop_player()  # one at a time; the newest wins
         await self._stop_music()
-        player = phoneplay.Player(targets, title, fullscreen)
+        player = phoneplay.Player(targets, title, fullscreen, **options)
         self.player = (player, server, s)
         self.play_peer = s.peer_id
         await self._announce_playing()
@@ -1425,6 +1429,43 @@ class Node:
                 await s.channel.send({"t": "play_state", "on": self._now_playing() is not None})
             except ConnectionError:
                 pass
+
+    # -- the computer's films, chosen on the phone and played by the same window as what it shares
+
+    def _movies_root(self):
+        return movies.movies_dir(self.cfg["movies_dir"])
+
+    async def _h_movies_list(self, s, msg):
+        self._check_play()
+        await s.channel.reply(msg, **await asyncio.to_thread(movies.listing, self._movies_root(), msg.get("path"), self.movie_progress))
+
+    async def _h_movies_search(self, s, msg):
+        self._check_play()
+        found = await asyncio.to_thread(movies.search, self._movies_root(), msg.get("query"), self.movie_progress)
+        await s.channel.reply(msg, entries=found)
+
+    async def _h_movies_play(self, s, msg):
+        self._check_play()
+        target, rel = await asyncio.to_thread(movies.find, self._movies_root(), msg.get("path"))
+        start = self.movie_progress.resume_point(rel) if msg.get("resume") else 0
+        await self._start_player(s, [str(target)], f"{target.stem} – Tether", start=start)
+        self.movie_watch = asyncio.ensure_future(self._log_progress(self.player[0], rel))
+        log.info("%s: playing a film from %d seconds", s.name, start)
+        await s.channel.reply(msg, start=start)
+
+    async def _log_progress(self, player, rel) -> None:
+        saved = time.monotonic()
+        try:
+            while player.alive():
+                state = await player.state()
+                if state.get("position") is not None:
+                    self.movie_progress.note(rel, state["position"], state.get("length"))
+                if time.monotonic() - saved >= PROGRESS_SAVE_S:
+                    self.movie_progress.save()
+                    saved = time.monotonic()
+                await asyncio.sleep(PROGRESS_SAMPLE_S)
+        finally:
+            self.movie_progress.save()
 
     # -- the phone as mouse and keyboard ------------------------------------------------------
 

@@ -1,5 +1,6 @@
 package dev.tether.core
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
@@ -117,6 +118,42 @@ private fun parseMusicState(m: JsonObject): MusicState {
         volume = number("volume") ?: 100.0,
         count = number("count")?.toInt() ?: 1,
     )
+}
+
+/** A film or folder in the computer's Movies folder. [position] is above 0 only if it was left part way through. */
+data class MovieEntry(
+    val name: String,
+    val path: String,
+    val dir: Boolean,
+    val position: Double,
+    val length: Double,
+    val finished: Boolean,
+)
+
+/** A folder of films; at the top of the library, [resume] holds those left part way through. */
+data class MovieFolder(val entries: List<MovieEntry>, val resume: List<MovieEntry>)
+
+private fun parseMovies(list: JsonArray?) = list.orEmpty().mapNotNull { it as? JsonObject }.map {
+    fun number(k: String) = (it[k] as? JsonPrimitive)?.doubleOrNull ?: 0.0
+    MovieEntry(it.str("name").orEmpty(), it.str("path").orEmpty(), it.bool("dir") == true, number("position"), number("length"), it.bool("finished") == true)
+}
+
+fun Node.moviesList(peerId: String, path: String): MovieFolder {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    val m = s.channel.request(jobj("t" to "movies_list", "path" to path)).msg
+    return MovieFolder(parseMovies(m.arr("entries")), parseMovies(m.arr("continue")))
+}
+
+/** Films anywhere in the library that match [query]. */
+fun Node.moviesSearch(peerId: String, query: String): List<MovieEntry> {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    return parseMovies(s.channel.request(jobj("t" to "movies_search", "query" to query)).msg.arr("entries"))
+}
+
+/** Plays a film, from where it was left if [resume], else from the start. */
+fun Node.moviesPlay(peerId: String, path: String, resume: Boolean) {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    s.channel.request(jobj("t" to "movies_play", "path" to path, "resume" to resume))
 }
 
 /** Asks to use the computer's mouse and keyboard. RemoteError "denied" while it has that turned off. */

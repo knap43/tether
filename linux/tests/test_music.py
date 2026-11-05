@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tether import music, phoneplay  # noqa: E402
+from tether import movies, music, phoneplay  # noqa: E402
 from tether.errors import ProtoError  # noqa: E402
 
 
@@ -150,6 +150,97 @@ async def test_video_player(folder: Path):
     print("ok  video player")
 
 
+def test_movies(base: Path):
+    root, outside = base / "Movies", base / "elsewhere"
+    (root / "Sci-Fi" / "The Matrix").mkdir(parents=True)
+    (root / "Drama").mkdir()
+    (root / ".hidden").mkdir()
+    outside.mkdir()
+    for name in ("Sci-Fi/The Matrix/The.Matrix.1999.mkv", "Sci-Fi/Alien.mp4", "Sci-Fi/notes.txt", "Drama/Amélie.MKV",
+                 "Drama/Ocean's Eleven.avi", ".hidden/Matrix.mkv", "Matrix Reloaded.webm"):
+        (root / name).write_bytes(b"xx")
+    (outside / "Matrix Private.mkv").write_bytes(b"x")
+    (root / "Matrix Leak.mkv").symlink_to(outside / "Matrix Private.mkv")
+    log = base / "data" / "movie_progress.json"
+    progress = movies.Progress(log)
+
+    top = movies.listing(root, "/", progress)
+    assert [e["name"] for e in top["entries"]] == ["Drama", "Sci-Fi", "Matrix Leak.mkv", "Matrix Reloaded.webm"], top
+    assert top["continue"] == [] and top["entries"][1]["path"] == "Sci-Fi"
+    inner = movies.listing(root, "Sci-Fi", progress)
+    assert [e["path"] for e in inner["entries"]] == ["Sci-Fi/The Matrix", "Sci-Fi/Alien.mp4"] and "continue" not in inner
+
+    def names(query):
+        return [e["path"] for e in movies.search(root, query, progress)]
+
+    # Through every folder; not hidden ones or a link out of the library; a folder's name counts too.
+    assert names("matrix") == ["Matrix Reloaded.webm", "Sci-Fi/The Matrix/The.Matrix.1999.mkv"], names("matrix")
+    assert names("THE matrix 1999") == ["Sci-Fi/The Matrix/The.Matrix.1999.mkv"]
+    assert names("amelie") == ["Drama/Amélie.MKV"] and names("oceans") == ["Drama/Ocean's Eleven.avi"]
+    assert names("sci fi") == ["Sci-Fi/Alien.mp4", "Sci-Fi/The Matrix/The.Matrix.1999.mkv"]
+    assert names("notes") == [] and names("  ") == []
+    assert code_of(movies.search, root, 7, progress) == "bad_request"
+    assert code_of(movies.find, root, "Sci-Fi/notes.txt") == "bad_request"
+    assert code_of(movies.find, root, "Matrix Leak.mkv") == "denied"
+    assert code_of(movies.find, root, "../elsewhere/Matrix Private.mkv") == "denied"
+    assert movies.find(root, "/Sci-Fi/Alien.mp4")[1] == "Sci-Fi/Alien.mp4"
+
+    alien = "Sci-Fi/Alien.mp4"
+    progress.note(alien, 10, 6000)
+    assert progress.resume_point(alien) == 0 and progress.view(alien) == {}  # barely started
+    progress.note(alien, 1200, 6000)
+    assert progress.resume_point(alien) == 1200 and progress.view(alien) == {"position": 1200, "length": 6000}
+    progress.note("Drama/Amélie.MKV", 300, 7000)
+    progress.note("Gone.mkv", 300, 7000)
+    progress.films[alien]["at"] += 100  # the latest
+    progress.save()
+
+    again = movies.Progress(log)  # across a restart
+    top = movies.listing(root, "/", again)
+    assert [e["path"] for e in top["continue"]] == [alien, "Drama/Amélie.MKV"], top["continue"]  # Gone.mkv is gone
+    assert top["continue"][0]["position"] == 1200
+    assert movies.search(root, "alien", again)[0]["position"] == 1200
+    assert movies.listing(root, "Sci-Fi", again)["entries"][1]["position"] == 1200
+
+    again.note(alien, 5800, 6000)  # into the credits
+    assert again.view(alien) == {"finished": True, "length": 6000} and again.resume_point(alien) == 0
+    assert alien not in again.recent()
+    again.note(alien, 5, 6000)  # a look at the start doesn't undo that
+    assert again.view(alien)["finished"]
+    again.note(alien, 600, 6000)  # really watching it again does
+    assert again.view(alien)["position"] == 600
+
+    log.write_text("{broken")
+    assert movies.Progress(log).films == {}
+    (root / "Matrix Leak.mkv").unlink()
+    print("ok  movie library and progress")
+
+
+async def test_resume(folder: Path):
+    """A real mpv opens at the position it's given, and reports that rather than the start."""
+    if not (shutil.which("mpv") and shutil.which("ffmpeg")):
+        return
+    video = folder / "resume.mkv"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x64:r=5:d=120",
+                    str(video)], check=True)
+    display_env, real_popen = phoneplay.display_env, phoneplay.subprocess.Popen
+    phoneplay.display_env = dict
+    phoneplay.subprocess.Popen = lambda cmd, **k: real_popen([cmd[0], "--vo=null", "--ao=null", *cmd[1:]], **k)
+    try:
+        player = phoneplay.Player([str(video)], "film", start=70.5)
+    finally:
+        phoneplay.display_env, phoneplay.subprocess.Popen = display_env, real_popen
+    try:
+        async def started():
+            return await player.state() if (await player.state()).get("position") is not None else None
+
+        s = await until(started, "the film")
+        assert 70 <= s["position"] < 75, s  # the very first report, or a log would forget the place
+    finally:
+        await player.stop()
+    print("ok  resuming a film")
+
+
 async def _past(player, seconds):
     return ((await player.state()).get("position") or 0) > seconds
 
@@ -167,3 +258,5 @@ if __name__ == "__main__":
         test_folder(root, outside)
         asyncio.run(test_player(outside))
         asyncio.run(test_video_player(outside))
+        asyncio.run(test_resume(outside))
+        test_movies(Path(d))

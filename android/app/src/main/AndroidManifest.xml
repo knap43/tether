@@ -110,6 +110,12 @@
             android:launchMode="singleTop" />
 
         <activity
+            android:name=".app.MoviesActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".app.SettingsActivity"
             android:exported="false"
             android:launchMode="singleTop" />

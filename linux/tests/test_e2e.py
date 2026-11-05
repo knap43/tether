@@ -537,8 +537,8 @@ async def main(root: Path):
         def forget_log(self):
             pass
 
-        def __init__(self, targets, title, fullscreen=True):
-            self.targets, self.fullscreen, self.ended = targets, fullscreen, asyncio.Event()
+        def __init__(self, targets, title, fullscreen=True, start=0):
+            self.targets, self.fullscreen, self.start, self.ended = targets, fullscreen, start, asyncio.Event()
             self.commands = []
             played.append(self)
 
@@ -591,6 +591,33 @@ async def main(root: Path):
         res = await sb.request({"t": "music_cmd", "action": "stop"})
         assert res["playing"] is False and A.player is None
         await until(lambda: told == [True, False], what="told it stopped")
+
+        # A film from the computer's own folder: found by searching, played and logged, then resumed.
+        library = Path(tempfile.mkdtemp())
+        (library / "Sci-Fi").mkdir()
+        (library / "Sci-Fi" / "The.Matrix.mkv").write_bytes(b"x")
+        A.cfg["movies_dir"] = str(library)
+        assert [e["path"] for e in (await sb.request({"t": "movies_list", "path": "/"}))["entries"]] == ["Sci-Fi"]
+        film = (await sb.request({"t": "movies_search", "query": "the matrix"}))["entries"][0]
+        assert film["path"] == "Sci-Fi/The.Matrix.mkv" and "position" not in film, film
+        assert (await sb.request({"t": "movies_play", "path": film["path"], "resume": True}))["start"] == 0
+        assert played[-1].targets == [str(library / "Sci-Fi" / "The.Matrix.mkv")] and played[-1].fullscreen
+        A.movie_progress.note(film["path"], 600, 6000)
+        res = await sb.request({"t": "music_cmd", "action": "stop"})
+        assert res["playing"] is False
+        await until(lambda: json.loads((A.paths.data_dir / "movie_progress.json").read_text())[film["path"]]["position"] == 600
+                    if (A.paths.data_dir / "movie_progress.json").exists() else False, what="the progress saved")
+        res = await sb.request({"t": "movies_list", "path": "/"})
+        assert res["continue"][0]["position"] == 600, res
+        assert (await sb.request({"t": "movies_play", "path": film["path"], "resume": True}))["start"] == 600
+        assert played[-1].start == 600
+        assert (await sb.request({"t": "movies_play", "path": film["path"], "resume": False}))["start"] == 0
+        await sb.request({"t": "music_cmd", "action": "stop"})
+        try:
+            await sb.request({"t": "movies_play", "path": "../../etc/passwd"})
+            raise AssertionError("played from outside the folder")
+        except ProtoError as e:
+            assert e.code == "denied", e
         A.media.has_wpctl = bool(shutil.which("wpctl"))
 
         A.cfg["phone_play"] = False
