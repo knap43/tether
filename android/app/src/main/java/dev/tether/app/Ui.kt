@@ -1,6 +1,8 @@
 package dev.tether.app
 
 import android.content.Context
+import com.google.android.material.slider.Slider
+import com.google.android.material.slider.LabelFormatter
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -205,6 +207,39 @@ class Ui(val ctx: Context) {
         }
 
     /** Buttons sharing a row in equal parts, so they always fit the width. */
+    /** Controls meant to be hit without looking: an icon button at the given size. */
+    fun bigButton(b: MaterialButton, sizeDp: Int) = b.apply {
+        iconSize = dp(sizeDp * 9 / 16)
+        insetTop = 0
+        insetBottom = 0
+        minimumWidth = 0
+        minimumHeight = 0
+        layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply { setMargins(dp(6), dp(4), dp(6), dp(4)) }
+    }
+
+    fun bigRow(vararg bs: View) = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        bs.forEach { addView(it) }
+    }
+
+    /** A slider with room for a thumb. */
+    fun bigSlider(max: Float = 1f) = Slider(ctx).apply {
+        valueFrom = 0f
+        valueTo = max
+        labelBehavior = LabelFormatter.LABEL_GONE
+        trackHeight = dp(10)
+        thumbRadius = dp(14)
+    }
+
+    /** The speaker icon and a slider, on one line. */
+    fun volumeRow(slider: Slider) = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(icon(R.drawable.ic_volume, sizeDp = 32))
+        addView(slider, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
     fun buttons(vararg bs: View) = LinearLayout(ctx).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(0, dp(8), 0, 0)

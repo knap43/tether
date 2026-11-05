@@ -1486,6 +1486,9 @@ class Node:
         if self.remote and self.remote[1] is s and self.cfg["phone_remote"]:
             remoteinput.apply(self.remote[0], msg)
 
+    async def _h_remote_volume(self, s, msg):
+        await s.channel.reply(msg, volume=await self._audio_volume())
+
     async def _h_remote_close(self, s, msg):
         if self.remote and self.remote[1] is s:
             self._close_remote()

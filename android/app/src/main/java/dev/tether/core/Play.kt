@@ -125,6 +125,12 @@ fun Node.remoteOpen(peerId: String) {
     s.channel.request(jobj("t" to "remote_open"))
 }
 
+/** The computer's output volume (0–1). */
+fun Node.remoteVolume(peerId: String): Double? {
+    val s = session(peerId) ?: return null
+    return (s.channel.request(jobj("t" to "remote_volume")).msg["volume"] as? JsonPrimitive)?.doubleOrNull
+}
+
 fun Node.remoteClose(peerId: String) {
     session(peerId)?.channel?.trySend(jobj("t" to "remote_close"))
 }

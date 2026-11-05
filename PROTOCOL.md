@@ -314,6 +314,8 @@ answers, as they may come many times a second, `{"t": "remote", "kind": …}`:
 `move` (`dx`, `dy`), `click` (`button`: `left` or `right`), `scroll` (`steps`), or
 `key` (`key`: one of `space`, `f`, `m`, `escape`, `return`, `left`, `up`, `right`,
 `down`, `f5`; there is no way to type anything else). `{"t": "remote_close"}` ends it.
+`{"t": "remote_volume", "req": n}` is answered with `volume` (0–1), the computer's
+output volume; `audio_volume` sets it, as it does for phone audio.
 
 ### Wake-on-LAN (desktop → phone)
 

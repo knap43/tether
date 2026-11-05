@@ -16,7 +16,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.slider.LabelFormatter
 import com.google.android.material.slider.Slider
 import dev.tether.R
 import dev.tether.core.MusicState
@@ -41,12 +40,12 @@ class PlayerControls(
     private val view = card.parent as View
     private val title: TextView = ui.title("")
     private val artist: TextView = ui.text("", lines = 1)
-    private val seek = slider()
-    private val volume = slider()
-    private val previous = ui.iconButton(R.drawable.ic_skip_previous, "Previous") { command("previous") }
-    private val next = ui.iconButton(R.drawable.ic_skip_next, "Next") { command("next") }
+    private val seek = ui.bigSlider()
+    private val volume = ui.bigSlider(100f)
+    private val previous = ui.bigButton(ui.iconButton(R.drawable.ic_skip_previous, "Previous") { command("previous") }, SMALL_DP)
+    private val next = ui.bigButton(ui.iconButton(R.drawable.ic_skip_next, "Next") { command("next") }, SMALL_DP)
     private val playPause: MaterialButton =
-        ui.iconButton(R.drawable.ic_pause, "Pause", R.attr.tetherFilledIconButton) { command("toggle") }
+        ui.bigButton(ui.iconButton(R.drawable.ic_pause, "Pause", R.attr.tetherFilledIconButton) { command("toggle") }, MAIN_DP)
     private var position = 0.0
     private var seeking = false
     private var settingVolume = false
@@ -65,28 +64,16 @@ class PlayerControls(
         seek.addOnSliderTouchListener(touch({ seeking = it }) { command("position", it.toDouble()) })
         card.addView(seek)
         card.addView(
-            LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                addView(ui.iconButton(R.drawable.ic_close, "Stop") { command("stop") })
-                addView(previous)
-                addView(ui.iconButton(R.drawable.ic_rewind, "Back 10 seconds") { command("position", maxOf(0.0, position - SKIP_S)) })
-                addView(playPause)
-                addView(ui.iconButton(R.drawable.ic_forward, "Forward 10 seconds") { command("position", position + SKIP_S) })
-                addView(next)
-            },
+            ui.bigRow(
+                ui.bigButton(ui.iconButton(R.drawable.ic_rewind, "Back 10 seconds") { command("position", maxOf(0.0, position - SKIP_S)) }, SIDE_DP),
+                playPause,
+                ui.bigButton(ui.iconButton(R.drawable.ic_forward, "Forward 10 seconds") { command("position", position + SKIP_S) }, SIDE_DP),
+            ),
         )
-        volume.valueTo = 100f
+        card.addView(ui.bigRow(previous, ui.bigButton(ui.iconButton(R.drawable.ic_close, "Stop") { command("stop") }, SMALL_DP), next))
         volume.stepSize = 1f
         volume.addOnSliderTouchListener(touch({ settingVolume = it }) { command("volume", it.toDouble()) })
-        card.addView(
-            LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(ui.icon(R.drawable.ic_volume))
-                addView(volume, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            },
-        )
+        card.addView(ui.volumeRow(volume))
     }
 
     fun start() = main.post(poll)
@@ -131,12 +118,6 @@ class PlayerControls(
         if (!settingVolume) volume.value = Math.round(s.volume).toFloat().coerceIn(0f, 100f)
     }
 
-    private fun slider() = Slider(activity).apply {
-        valueFrom = 0f
-        valueTo = 1f
-        labelBehavior = LabelFormatter.LABEL_GONE
-    }
-
     private fun touch(active: (Boolean) -> Unit, done: (Float) -> Unit) = object : Slider.OnSliderTouchListener {
         override fun onStartTrackingTouch(slider: Slider) = active(true)
 
@@ -149,6 +130,9 @@ class PlayerControls(
     private companion object {
         const val POLL_MS = 1000L
         const val SKIP_S = 10.0
+        const val MAIN_DP = 96
+        const val SIDE_DP = 76
+        const val SMALL_DP = 64
     }
 }
 

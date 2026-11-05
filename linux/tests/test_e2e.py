@@ -683,6 +683,12 @@ async def main(root: Path):
     await sb.send({"t": "remote", "kind": "key", "key": "space"})  # without opening: nothing
     A.cfg["phone_remote"] = True
     await sb.request({"t": "remote_open"})
+    A.media.has_wpctl = False
+    A.cfg["phone_audio_volume"] = 0.25
+    assert (await sb.request({"t": "remote_volume"}))["volume"] == 0.25
+    await sb.send({"t": "audio_volume", "volume": 0.6})
+    await until(lambda: A.cfg["phone_audio_volume"] == 0.6, what="volume from the remote")
+    A.media.has_wpctl = bool(shutil.which("wpctl"))
     for bad in ({"kind": "key", "key": "super"}, {"kind": "key", "key": 7}, {"kind": "click", "button": "evil"},
                 {"kind": "move", "dx": "x", "dy": 1}, {"kind": "scroll", "steps": True}, {"kind": "reboot"}):
         await sb.send({"t": "remote", **bad})

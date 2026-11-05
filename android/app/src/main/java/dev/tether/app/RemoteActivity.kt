@@ -2,6 +2,8 @@ package dev.tether.app
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
@@ -11,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.R as M
+import com.google.android.material.slider.Slider
 import dev.tether.R
 import dev.tether.core.Node
 import dev.tether.core.RemoteError
@@ -20,6 +23,8 @@ import dev.tether.core.remoteKey
 import dev.tether.core.remoteMove
 import dev.tether.core.remoteOpen
 import dev.tether.core.remoteScroll
+import dev.tether.core.remoteVolume
+import dev.tether.core.setAudioVolume
 import java.io.IOException
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -32,6 +37,22 @@ class RemoteActivity : AppCompatActivity() {
     private val sender = Executors.newSingleThreadExecutor() // keeps events in order
     private lateinit var hint: TextView
     private var ready = false
+    private lateinit var volume: Slider
+    private var settingVolume = false
+    private val main = Handler(Looper.getMainLooper())
+    private val followVolume = object : Runnable {
+        override fun run() {
+            sender.execute {
+                val level = runCatching { node.remoteVolume(peer) }.getOrNull()
+                if (level != null) {
+                    main.post {
+                        if (!settingVolume && !isDestroyed) volume.value = Math.round(level * 100).toFloat().coerceIn(0f, 100f)
+                    }
+                }
+            }
+            main.postDelayed(this, VOLUME_POLL_MS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,18 +71,38 @@ class RemoteActivity : AppCompatActivity() {
         content.addView(touchpad(ui), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
             setMargins(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(8))
         })
+        fun button(icon: Int, text: String, size: Int, style: Int = R.attr.tetherIconButton, key: String) =
+            ui.bigButton(ui.iconButton(icon, text, style) { key(key) }, size)
         content.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                setPadding(0, ui.dp(8), 0, ui.dp(16))
-                addView(ui.iconButton(R.drawable.ic_sync, "F5: reload the page") { key("f5") })
-                addView(ui.iconButton(R.drawable.ic_close, "Escape") { key("escape") })
-                addView(ui.iconButton(R.drawable.ic_rewind, "Left arrow") { key("left") })
-                addView(ui.iconButton(R.drawable.ic_play, "Space: play or pause", R.attr.tetherFilledIconButton) { key("space") })
-                addView(ui.iconButton(R.drawable.ic_forward, "Right arrow") { key("right") })
-                addView(ui.iconButton(R.drawable.ic_screen, "F: fullscreen") { key("f") })
-            },
+            ui.bigRow(
+                button(R.drawable.ic_rewind, "Left arrow", SIDE_DP, key = "left"),
+                button(R.drawable.ic_play, "Space: play or pause", MAIN_DP, R.attr.tetherFilledIconButton, "space"),
+                button(R.drawable.ic_forward, "Right arrow", SIDE_DP, key = "right"),
+            ),
+        )
+        content.addView(
+            ui.bigRow(
+                button(R.drawable.ic_sync, "F5: reload the page", SMALL_DP, key = "f5"),
+                button(R.drawable.ic_close, "Escape", SMALL_DP, key = "escape"),
+                button(R.drawable.ic_screen, "F: fullscreen", SMALL_DP, key = "f"),
+            ),
+        )
+        volume = ui.bigSlider(100f).apply {
+            stepSize = 1f
+            addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(slider: Slider) {
+                    settingVolume = true
+                }
+
+                override fun onStopTrackingTouch(slider: Slider) {
+                    settingVolume = false
+                    val level = slider.value / 100.0
+                    sender.execute { node.setAudioVolume(peer, level) }
+                }
+            })
+        }
+        content.addView(
+            ui.volumeRow(volume).apply { setPadding(ui.dp(20), ui.dp(4), ui.dp(20), ui.dp(16)) },
         )
     }
 
@@ -69,6 +110,12 @@ class RemoteActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (!ready) open()
+        main.post(followVolume)
+    }
+
+    override fun onPause() {
+        main.removeCallbacks(followVolume)
+        super.onPause()
     }
 
     private fun open() = sender.execute {
@@ -165,6 +212,10 @@ class RemoteActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PEER = "peer"
         private const val HELP = "Move with a finger · tap to click\nTwo fingers: scroll · tap to right-click"
+        private const val MAIN_DP = 96
+        private const val SIDE_DP = 76
+        private const val SMALL_DP = 64
+        private const val VOLUME_POLL_MS = 1000L
         private const val SPEED = 2f
         private const val SCROLL_STEP_DP = 24
         private const val TAP_MS = 300L
