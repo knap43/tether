@@ -118,8 +118,7 @@ class MainActivity : AppCompatActivity() {
     // -- the computer in view --------------------------------------------------------------
 
     private fun buildToolbar() {
-        switcher = ui.button("Tether", Ui.Kind.TEXT, R.drawable.ic_dropdown) { showSwitcher() }.apply {
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
+        switcher = ui.button("Tether", Ui.Kind.TEXT) { showSwitcher() }.apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             setTextColor(md(R.color.md_on_surface))
             maxLines = 1
@@ -177,7 +176,7 @@ class MainActivity : AppCompatActivity() {
         renderWaitingAnswers(node)
         val id = selected(node)
         val peer = id?.let { node.peers.get(it) }
-        switcher.text = peer?.name ?: "Tether"
+        switcher.text = if (peer == null) "Tether" else "${peer.name} ▾"
         when {
             peer == null -> content.addView(bigButton("Pair a computer", R.drawable.ic_computer) { openSettings() }, fill())
             node.isConnected(peer.id) -> renderControls(peer.id)
