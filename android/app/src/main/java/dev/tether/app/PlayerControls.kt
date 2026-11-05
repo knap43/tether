@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -102,8 +103,9 @@ class PlayerControls(
         view.visibility = if (s.playing) View.VISIBLE else View.GONE
         if (!s.playing) return
         title.text = s.title ?: "Opening…"
-        artist.text = s.artist.orEmpty()
-        artist.visibility = if (s.artist.isNullOrEmpty()) View.GONE else View.VISIBLE
+        val place = if (s.count > 1) "${s.index + 1} of ${s.count}" else null
+        artist.text = listOfNotNull(s.artist?.takeIf { it.isNotEmpty() }, place).joinToString(" · ")
+        artist.visibility = if (artist.text.isEmpty()) View.GONE else View.VISIBLE
         playPause.setIconResource(if (s.paused) R.drawable.ic_play else R.drawable.ic_pause)
         playPause.contentDescription = if (s.paused) "Play" else "Pause"
         val several = if (s.count > 1) View.VISIBLE else View.GONE
@@ -190,12 +192,12 @@ object PlaybackNotifier {
             showingFor = null
             return
         }
-        fun action(label: String, what: String, code: Int): Notification.Action {
+        fun action(label: String, icon: Int, what: String, code: Int): Notification.Action {
             val intent = Intent(context, PlaybackReceiver::class.java)
                 .putExtra(PlaybackReceiver.EXTRA_ACTION, what)
                 .putExtra(PlaybackReceiver.EXTRA_PEER, e.from)
             val pending = PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-            return Notification.Action.Builder(null, label, pending).build()
+            return Notification.Action.Builder(Icon.createWithResource(context, icon), label, pending).build()
         }
         val open = Intent(context, NowPlayingActivity::class.java)
             .putExtra(NowPlayingActivity.EXTRA_PEER, e.from)
@@ -208,8 +210,11 @@ object PlaybackNotifier {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(PendingIntent.getActivity(context, ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .addAction(action("Play/Pause", "toggle", 10))
-            .addAction(action("Stop", "stop", 11))
+            .setStyle(Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2))
+            .addAction(action("Previous", R.drawable.ic_skip_previous, "previous", 12))
+            .addAction(action("Play/Pause", R.drawable.ic_pause, "toggle", 10))
+            .addAction(action("Next", R.drawable.ic_skip_next, "next", 13))
+            .addAction(action("Stop", R.drawable.ic_close, "stop", 11))
             .build()
         try {
             nm.notify(ID, n)

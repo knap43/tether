@@ -77,6 +77,7 @@ data class MusicState(
     val position: Double,
     val length: Double,
     val volume: Double,
+    val index: Int,
     val count: Int,
 )
 
@@ -116,6 +117,7 @@ private fun parseMusicState(m: JsonObject): MusicState {
         position = number("position") ?: 0.0,
         length = number("length") ?: 0.0,
         volume = number("volume") ?: 100.0,
+        index = number("index")?.toInt() ?: 0,
         count = number("count")?.toInt() ?: 1,
     )
 }

@@ -302,11 +302,13 @@ to it. The film plays in the direct-play window, so `music_state`, `music_cmd` a
 |---|---|---|
 | `movies_list` | `path` | `root`, `entries`, folders first, videos only; at the top of the folder also `continue`, films left part way through, latest first |
 | `movies_search` | `query` | `entries`: up to 200 films from the whole folder whose path holds all the query's words, ignoring case, accents and punctuation |
-| `movies_play` | `path`, `resume` | `start`, the second it opens at: where it was left if `resume`, else 0 |
+| `movies_play` | `path`, `resume` | plays the film with the rest of its folder queued behind and before it, for `next` and `previous`; `start`, the second it opens at: where it was left if `resume`, else 0 |
 
 An entry is `{"name", "path", "dir", "size"}`, and for a film left part way through
 also `position` and `length` (seconds), or for one seen to the end (95%), `finished`
-and `length`. Refused like direct play: `denied`, `unsupported`.
+and `length`. Other films in the queue open where they were left. At the end of a
+film under an hour the next one follows; one of an hour or more ends playback.
+Refused like direct play: `denied`, `unsupported`.
 
 ### Remote input (phone → desktop)
 

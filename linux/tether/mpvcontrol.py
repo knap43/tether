@@ -9,7 +9,7 @@ from .errors import ProtoError
 
 IPC_TIMEOUT = 2
 PROPERTIES = ["media-title", "metadata/by-key/artist", "metadata/by-key/album", "time-pos", "duration", "pause",
-              "volume", "playlist-pos", "playlist-count"]
+              "volume", "playlist-pos", "playlist-count", "eof-reached"]
 
 
 class MpvControl:
@@ -50,14 +50,14 @@ class MpvControl:
         if not self.alive():
             return {"playing": False}
         try:
-            title, artist, album, pos, length, paused, volume, index, count = await self._ipc(
+            title, artist, album, pos, length, paused, volume, index, count, ended = await self._ipc(
                 [["get_property", n] for n in PROPERTIES])
         except (OSError, ConnectionError, asyncio.TimeoutError, ValueError):
             return {"playing": True, "loading": True}
         if pos is None:  # still opening: until then its "title" is only the address
-            return {"playing": True, "loading": True, "paused": bool(paused), "volume": volume}
+            return {"playing": True, "loading": True, "paused": bool(paused), "volume": volume, "index": index, "count": count}
         return {"playing": True, "title": title, "artist": artist, "album": album, "position": pos, "length": length,
-                "paused": bool(paused), "volume": volume, "index": index, "count": count}
+                "paused": bool(paused), "volume": volume, "index": index, "count": count, "ended": bool(ended)}
 
     async def command(self, action, value=None) -> None:
         try:

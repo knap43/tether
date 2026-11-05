@@ -1,5 +1,7 @@
-"""The computer's Movies folder, browsed and searched from the phone, and how far each film has been watched."""
+"""The computer's Movies folder, browsed and searched from the phone, how far each film has been
+watched, and what plays after what."""
 
+import asyncio
 import logging
 import os
 import re
@@ -9,7 +11,7 @@ from pathlib import Path
 
 from .config import atomic_write_json, read_json
 from .errors import ProtoError
-from .music import _order, list_folder, resolve, user_dir
+from .music import MAX_QUEUE, _order, list_folder, resolve, user_dir
 
 log = logging.getLogger("tether.movies")
 
@@ -19,6 +21,10 @@ MAX_RESULTS = 200
 MAX_CONTINUE = 10
 MIN_RESUME = 30  # seconds: less than this isn't worth coming back to
 WATCHED_AT = 0.95  # the credits needn't be sat through
+ROLL_ON_BELOW_S = 60 * 60  # shorter than this is an episode, so the next one follows; a feature film ends the evening
+SAMPLE_S = 1  # how often the player is asked where it is
+SAVE_S = 30  # and how often that reaches the disk, besides when it ends
+EPISODE = re.compile(r"(?<![a-z0-9])s(\d+)\s*e(\d+)", re.I)
 
 
 def movies_dir(configured: str | None = None) -> Path:
@@ -39,6 +45,57 @@ def find(root: Path, path) -> tuple[Path, str]:
     if not target.is_file() or not _is_movie(target):
         raise ProtoError("bad_request")
     return target, target.relative_to(root.resolve()).as_posix()
+
+
+def _film_order(name: str):
+    """By season and episode where the name says so, whatever precedes it (WP_s1e22b belongs by s1e22a); else by name."""
+    m = EPISODE.search(name.replace("_", " "))
+    return (0, int(m[1]), int(m[2]), _order(name[m.end():])) if m else (1, 0, 0, _order(name))
+
+
+def playlist(root: Path, path, progress: "Progress", resume) -> dict:
+    """The film's whole folder, so that next and previous work, starting at the film. Each opens where it
+    was left, except the chosen one if it's being started over."""
+    target, _ = find(root, path)
+    real = root.resolve()
+    films = [p for p in target.parent.iterdir()
+             if p.is_file() and _is_movie(p) and p.resolve().is_relative_to(real)]
+    films.sort(key=lambda p: _film_order(p.name))
+    first = next(i for i, p in enumerate(films) if p.name == target.name)
+    cut = max(0, first - MAX_QUEUE // 2)
+    films, first = films[cut:cut + MAX_QUEUE], first - cut
+    rels = [p.relative_to(real).as_posix() for p in films]
+    places = {i: progress.resume_point(rel) for i, rel in enumerate(rels)}
+    if not resume:
+        places[first] = 0
+    return {"files": [str(p) for p in films], "rels": rels, "first": first,
+            "resume": {i: place for i, place in places.items() if place}}
+
+
+async def follow(player, rels: list[str], progress: "Progress", finish) -> None:
+    """While a held player plays: logs each film's progress, and at the end of one moves on or calls `finish`."""
+    saved = time.monotonic()
+    try:
+        while player.alive():
+            state = await player.state()
+            index, position, length = state.get("index"), state.get("position"), state.get("length")
+            if position is not None and isinstance(index, int) and 0 <= index < len(rels):
+                progress.note(rels[index], position, length)
+                if state.get("ended"):
+                    if length and length < ROLL_ON_BELOW_S and index + 1 < len(rels):
+                        try:
+                            await player.command("next")
+                        except ProtoError:
+                            log.warning("the player didn't move on to the next film")
+                    else:
+                        await finish()
+                        return
+            if time.monotonic() - saved >= SAVE_S:
+                progress.save()
+                saved = time.monotonic()
+            await asyncio.sleep(SAMPLE_S)
+    finally:
+        progress.save()
 
 
 def _fold(text: str) -> str:
@@ -66,7 +123,7 @@ def search(root: Path, query, progress: "Progress") -> list[dict]:
             folded = _fold(rel)
             if all(w in folded for w in words) and full.resolve().is_relative_to(real):
                 found.append(rel)
-    found.sort(key=_order)
+    found.sort(key=lambda rel: (rel.rpartition("/")[0].casefold(), _film_order(rel.rpartition("/")[2])))
     return [_entry(real, rel, progress) for rel in found[:MAX_RESULTS]]
 
 
@@ -83,7 +140,7 @@ def listing(root: Path, path, progress: "Progress") -> dict:
     """A folder with each film's progress; the top of the library also has what's being watched."""
     if path is None:
         path = "/"
-    entries = list_folder(root, path, keep=_is_movie)
+    entries = sorted(list_folder(root, path, keep=_is_movie), key=lambda e: (not e["dir"], _film_order(e["name"])))
     real = root.resolve()
     folder = resolve(root, path).relative_to(real).as_posix()
     for e in entries:

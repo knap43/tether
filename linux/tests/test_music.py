@@ -227,7 +227,7 @@ async def test_resume(folder: Path):
     phoneplay.display_env = dict
     phoneplay.subprocess.Popen = lambda cmd, **k: real_popen([cmd[0], "--vo=null", "--ao=null", *cmd[1:]], **k)
     try:
-        player = phoneplay.Player([str(video)], "film", start=70.5)
+        player = phoneplay.Player([str(video)], "film", resume={0: 70.5})
     finally:
         phoneplay.display_env, phoneplay.subprocess.Popen = display_env, real_popen
     try:
@@ -239,6 +239,108 @@ async def test_resume(folder: Path):
     finally:
         await player.stop()
     print("ok  resuming a film")
+
+
+def test_playlist(base: Path):
+    root = base / "Library"
+    (root / "Series").mkdir(parents=True)
+    names = ["WP_s1e22b-Switch.mp4", "s1e03 a Camp.mp4", "s1e22a Party.mp4", "s1e26 End.mp4", "s2e01 Next.mp4", "notes.txt"]
+    for name in names:
+        (root / "Series" / name).write_bytes(b"x")
+    progress = movies.Progress(base / "playlist.json")
+    expected = ["s1e03 a Camp.mp4", "s1e22a Party.mp4", "WP_s1e22b-Switch.mp4", "s1e26 End.mp4", "s2e01 Next.mp4"]
+    assert [e["name"] for e in movies.listing(root, "Series", progress)["entries"]] == expected
+    assert [e["name"] for e in movies.search(root, "series", progress)] == expected
+
+    progress.note("Series/WP_s1e22b-Switch.mp4", 100, 600)
+    progress.note("Series/s2e01 Next.mp4", 200, 600)
+    plan = movies.playlist(root, "Series/WP_s1e22b-Switch.mp4", progress, True)
+    assert [Path(f).name for f in plan["files"]] == expected and plan["first"] == 2
+    assert plan["rels"][2] == "Series/WP_s1e22b-Switch.mp4" and plan["resume"] == {2: 100, 4: 200}, plan
+    plan = movies.playlist(root, "Series/WP_s1e22b-Switch.mp4", progress, False)  # starting over is only for that one
+    assert plan["resume"] == {4: 200}, plan
+    assert phoneplay.playlist_args(["/a", "/b"], {1: 5}) == ["/a", "--{", "--start=5", "/b", "--}"]
+    assert phoneplay.playlist_args(["-x"], None) == ["--", "-x"]
+    print("ok  playlist order")
+
+
+def clip(path: Path, seconds: int) -> None:
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    f"testsrc=s=64x64:r=10:d={seconds}", str(path)], check=True)
+
+
+async def test_series(base: Path):
+    """Real mpv: episodes roll on, each logged under its own name and opening at its own place; feature films stop."""
+    if not (shutil.which("mpv") and shutil.which("ffmpeg")):
+        return
+    folder = base / "Episodes"
+    folder.mkdir()
+    for name, seconds in (("a.mkv", 3), ("b.mkv", 60), ("c.mkv", 2)):
+        clip(folder / name, seconds)
+    files, rels = [str(folder / n) for n in ("a.mkv", "b.mkv", "c.mkv")], ["a.mkv", "b.mkv", "c.mkv"]
+    display_env, real_popen = phoneplay.display_env, phoneplay.subprocess.Popen
+    phoneplay.display_env = dict
+    phoneplay.subprocess.Popen = lambda cmd, **k: real_popen([cmd[0], "--vo=null", "--ao=null", *cmd[1:]], **k)
+    progress = movies.Progress(base / "series.json")
+
+    def player(**options):
+        return phoneplay.Player(files, "series", hold=True, **options)
+
+    async def at(p, index):
+        s = await p.state()
+        return s if s.get("index") == index and s.get("position") is not None else None
+
+    try:
+        p = player(resume={1: 40})
+        finished = asyncio.Event()
+
+        async def finish():
+            finished.set()
+
+        watch = asyncio.ensure_future(movies.follow(p, rels, progress, finish))
+        try:
+            s = await until(lambda: at(p, 0), "the first episode")
+            assert s["position"] < 3, s  # the second's place isn't this one's
+            s = await until(lambda: at(p, 1), "the next episode on its own")
+            assert s["position"] >= 40 and not s["paused"] and s["count"] == 3, s  # unpaused, at its place
+            assert progress.view("a.mkv").get("finished"), progress.films
+            await until(lambda: _past(p, 41), "it to play on")
+            await asyncio.sleep(1.2)
+            assert progress.resume_point("b.mkv") >= 40 and progress.view("c.mkv") == {}, progress.films
+            await p.command("next")  # the control: the last one, which ends it all
+            await until(lambda: at(p, 2), "the skip")
+            await asyncio.wait_for(finished.wait(), 15)
+        finally:
+            watch.cancel()
+            await p.stop()
+        assert (base / "series.json").exists() or progress.dirty
+
+        p = player(first=1, resume={1: 40})  # begins part way down the folder, at the film's place
+        try:
+            s = await until(lambda: at(p, 1), "the chosen film")
+            assert s["position"] >= 40, s
+            await p.command("previous")  # past the start: to the start of this one, not the one before
+            await until(lambda: _before(p, 3), "the start of the film")
+            assert (await p.state())["index"] == 1
+            await p.command("previous")
+            await until(lambda: at(p, 0), "the film before")
+        finally:
+            await p.stop()
+
+        roll_on, movies.ROLL_ON_BELOW_S = movies.ROLL_ON_BELOW_S, 2  # now the first counts as a feature film
+        p = player()
+        finished = asyncio.Event()
+        watch = asyncio.ensure_future(movies.follow(p, rels, progress, finish))
+        try:
+            await asyncio.wait_for(finished.wait(), 15)
+            assert (await p.state())["index"] == 0, "rolled on from a feature film"
+        finally:
+            movies.ROLL_ON_BELOW_S = roll_on
+            watch.cancel()
+            await p.stop()
+    finally:
+        phoneplay.display_env, phoneplay.subprocess.Popen = display_env, real_popen
+    print("ok  series and feature films")
 
 
 async def _past(player, seconds):
@@ -260,3 +362,5 @@ if __name__ == "__main__":
         asyncio.run(test_video_player(outside))
         asyncio.run(test_resume(outside))
         test_movies(Path(d))
+        test_playlist(Path(d))
+        asyncio.run(test_series(Path(d)))

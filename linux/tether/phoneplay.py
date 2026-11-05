@@ -72,17 +72,34 @@ def open_in_browser(url: str) -> bool:
     return True
 
 
-class Player(MpvControl):
-    """An mpv window: fullscreen for video, small for music."""
+def playlist_args(targets: list[str], resume: dict[int, float] | None) -> list[str]:
+    """What to play, each file opening at its own place: `--start` alone would apply to all of them.
+    Those per-file blocks rule out mpv's `--`, so files to resume must be absolute paths, which can't pass for options."""
+    if not resume:
+        return ["--", *targets]
+    args = []
+    for i, target in enumerate(targets):
+        if not target.startswith("/"):
+            raise ValueError("only absolute paths can be resumed")
+        args += ["--{", f"--start={resume[i]}", target, "--}"] if i in resume else [target]
+    return args
 
-    def __init__(self, targets: list[str], title: str, fullscreen: bool = True, start: float = 0):
+
+class Player(MpvControl):
+    """An mpv window: fullscreen for video, small for music. With `hold`, it stays on the end of each
+    file instead of moving on or closing, and whoever started it decides what happens next."""
+
+    def __init__(self, targets: list[str], title: str, fullscreen: bool = True, first: int = 0,
+                 resume: dict[int, float] | None = None, hold: bool = False):
         super().__init__("player")
         self.log_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", f"tether-player-{os.getpid()}.log")
         # The window waits for the first frame: a link takes many seconds to open, and a black screen says nothing.
-        cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes", "--keep-open=no",
+        cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes",
+               *(["--keep-open=always", "--keep-open-pause=no"] if hold else ["--keep-open=no"]),
+               f"--playlist-start={first}",
                f"--ytdl-format={YTDL_FORMAT}", f"--ytdl-raw-options-append=extractor-args={YTDL_CLIENTS}",
                "--ytdl-raw-options-append=no-playlist=", f"--log-file={self.log_path}",
-               f"--input-ipc-server={self.socket}", f"--start={start}", "--", *targets]
+               f"--input-ipc-server={self.socket}", *playlist_args(targets, resume)]
         self.proc = subprocess.Popen(cmd, env={**display_env(), **proxy_env()}, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 

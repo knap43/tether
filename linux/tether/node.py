@@ -44,8 +44,6 @@ MAX_OUTPUT = 64 * 1024
 AUDIO_ASK_TIMEOUT = 90  # how long the phone has to accept a request to stream its audio or screen
 DEFAULT_PORT = 47291
 MAX_INTRODUCED = 64
-PROGRESS_SAMPLE_S = 5  # how often a playing film's position is noted
-PROGRESS_SAVE_S = 30  # and how often that reaches the disk, besides when it ends
 
 
 def user_shell() -> str:
@@ -1446,26 +1444,20 @@ class Node:
 
     async def _h_movies_play(self, s, msg):
         self._check_play()
-        target, rel = await asyncio.to_thread(movies.find, self._movies_root(), msg.get("path"))
-        start = self.movie_progress.resume_point(rel) if msg.get("resume") else 0
-        await self._start_player(s, [str(target)], f"{target.stem} – Tether", start=start)
-        self.movie_watch = asyncio.ensure_future(self._log_progress(self.player[0], rel))
-        log.info("%s: playing a film from %d seconds", s.name, start)
-        await s.channel.reply(msg, start=start)
+        root = self._movies_root()
+        plan = await asyncio.to_thread(movies.playlist, root, msg.get("path"), self.movie_progress, msg.get("resume"))
+        title = f"{Path(plan['files'][0]).parent.name} – Tether"
+        await self._start_player(s, plan["files"], title, first=plan["first"], resume=plan["resume"], hold=True)
+        player = self.player[0]
 
-    async def _log_progress(self, player, rel) -> None:
-        saved = time.monotonic()
-        try:
-            while player.alive():
-                state = await player.state()
-                if state.get("position") is not None:
-                    self.movie_progress.note(rel, state["position"], state.get("length"))
-                if time.monotonic() - saved >= PROGRESS_SAVE_S:
-                    self.movie_progress.save()
-                    saved = time.monotonic()
-                await asyncio.sleep(PROGRESS_SAMPLE_S)
-        finally:
-            self.movie_progress.save()
+        async def finish():
+            if self.player and self.player[0] is player:
+                await self._stop_player()
+
+        self.movie_watch = asyncio.ensure_future(movies.follow(player, plan["rels"], self.movie_progress, finish))
+        start = plan["resume"].get(plan["first"], 0)
+        log.info("%s: playing film %d of %d from %d seconds", s.name, plan["first"] + 1, len(plan["files"]), start)
+        await s.channel.reply(msg, start=start)
 
     # -- the phone as mouse and keyboard ------------------------------------------------------
 
