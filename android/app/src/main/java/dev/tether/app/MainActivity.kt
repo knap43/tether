@@ -1,40 +1,39 @@
 package dev.tether.app
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.os.PowerManager
-import android.provider.DocumentsContract
-import android.provider.Settings
-import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
+import androidx.appcompat.widget.Toolbar
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
-import com.google.android.material.slider.LabelFormatter
 import com.google.android.material.slider.Slider
 import dev.tether.R
 import dev.tether.core.Node
 import dev.tether.core.NodeEvent
-import dev.tether.core.SyncFolder
 import com.google.android.material.R as M
 
+/** One computer at a time, and everything you can do with it. Setting things up lives in [SettingsActivity]. */
 class MainActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PAIR = "pair"
+        private const val PREFS = "main"
+        private const val KEY_COMPUTER = "computer"
+        private const val WAKE_MS = 60_000L
     }
 
     private lateinit var screen: Screen
+    private lateinit var switcher: MaterialButton
     private val ui get() = screen.ui
     private val content get() = screen.content
     private var pairDialog: AlertDialog? = null
@@ -43,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private val listener: (NodeEvent) -> Unit = { onNodeEvent(it) }
     private var audioSlider: Pair<String, Slider>? = null
     private var audioSliderDragging = false
+    private val wakingUntil = mutableMapOf<String, Long>()
 
     private val pickFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val target = sendTarget
@@ -50,19 +50,14 @@ class MainActivity : AppCompatActivity() {
             Transfers.send(this, target, uris) { _, msg -> runOnUiThread { snack(msg) } }
         }
     }
-    private val pickShareFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        onShareFolderPicked(uri)
-    }
-    private val pickSyncFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        onSyncFolderPicked(uri)
-    }
 
     // -- lifecycle ------------------------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Hub.start(this)
-        screen = Screen(this, "Tether", back = false, onRefresh = { done -> refreshAll(done) })
+        screen = Screen(this, "", back = false, scrolling = false)
+        buildToolbar()
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -114,22 +109,60 @@ class MainActivity : AppCompatActivity() {
         render()
     }
 
-    // -- helpers ----------------------------------------------------------------------
-
     private fun snack(msg: String) = ui.snack(screen.root, msg)
 
-    /** Runs network or disk work off the main thread; errors become snackbars. */
-    private fun bg(work: () -> Unit) {
-        Thread {
-            try {
-                work()
-            } catch (e: Exception) {
-                runOnUiThread { snack(e.message ?: e.javaClass.simpleName) }
-            }
-        }.start()
+    private fun code(sas: String) = "${sas.substring(0, 3)} ${sas.substring(3)}"
+
+    private fun openSettings() = startActivity(Intent(this, SettingsActivity::class.java))
+
+    // -- the computer in view --------------------------------------------------------------
+
+    private fun buildToolbar() {
+        switcher = ui.button("Tether", Ui.Kind.TEXT, R.drawable.ic_dropdown) { showSwitcher() }.apply {
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_END
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setTextColor(md(R.color.md_on_surface))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        screen.toolbar.addView(switcher, Toolbar.LayoutParams(Toolbar.LayoutParams.WRAP_CONTENT, Toolbar.LayoutParams.WRAP_CONTENT, Gravity.START or Gravity.CENTER_VERTICAL))
+        screen.toolbar.addView(
+            ui.iconButton(R.drawable.ic_settings, "Settings") { openSettings() },
+            Toolbar.LayoutParams(Toolbar.LayoutParams.WRAP_CONTENT, Toolbar.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL),
+        )
     }
 
-    private fun code(sas: String) = "${sas.substring(0, 3)} ${sas.substring(3)}"
+    /** The computer last chosen, or else whichever is connected. */
+    private fun selected(node: Node): String? {
+        val peers = node.peers.all()
+        val chosen = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_COMPUTER, null)
+        return peers.firstOrNull { it.id == chosen }?.id
+            ?: peers.firstOrNull { node.isConnected(it.id) }?.id
+            ?: peers.firstOrNull()?.id
+    }
+
+    private fun showSwitcher() {
+        val node = Hub.node ?: return
+        PopupMenu(this, switcher).apply {
+            for (p in node.peers.all()) {
+                val state = when {
+                    node.isConnected(p.id) -> "connected"
+                    node.isAsleep(p.id) -> "asleep"
+                    else -> "not connected"
+                }
+                menu.add("${p.name} · $state").setOnMenuItemClickListener {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_COMPUTER, p.id).apply()
+                    render()
+                    true
+                }
+            }
+            menu.add("Pair another computer").setOnMenuItemClickListener {
+                openSettings()
+                true
+            }
+            show()
+        }
+    }
 
     // -- rendering ------------------------------------------------------------------------
 
@@ -137,303 +170,138 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         val node = Hub.node
         if (node == null) {
-            screen.toolbar.subtitle = "Starting…"
             content.addView(LinearProgressIndicator(this).apply { isIndeterminate = true })
             content.postDelayed({ if (!isFinishing) render() }, 500)
             return
         }
-        val online = Hub.computers()
-        screen.toolbar.subtitle = when {
-            online.isNotEmpty() -> "Connected to ${online.joinToString { it.name }}"
-            node.peers.all().isNotEmpty() -> "No computer connected"
-            else -> "Not paired yet"
+        renderWaitingAnswers(node)
+        val id = selected(node)
+        val peer = id?.let { node.peers.get(it) }
+        switcher.text = peer?.name ?: "Tether"
+        when {
+            peer == null -> content.addView(bigButton("Pair a computer", R.drawable.ic_computer) { openSettings() }, fill())
+            node.isConnected(peer.id) -> renderControls(peer.id)
+            node.canWake(peer.id) -> renderWake(node, peer.id, peer.name)
+            else -> content.addView(
+                ui.help("${peer.name} isn't connected. Connect once while it's on, and you can wake it from here later.").apply {
+                    gravity = Gravity.CENTER
+                },
+                fill(),
+            )
         }
-        renderDevice(node)
-        renderComputers(node)
-        renderClipboard(node)
-        renderNotifications(node)
-        renderAudio()
-        renderFiles(node)
-        renderBackground()
-        renderAppearance()
-        pendingPairPrompt?.let { id ->
-            node.pendingPairs().firstOrNull { it.id == id && !it.confirmed }?.let { showPairDialog(it.id, it.name, it.sas) }
+        pendingPairPrompt?.let { pair ->
+            node.pendingPairs().firstOrNull { it.id == pair && !it.confirmed }?.let { showPairDialog(it.id, it.name, it.sas) }
             pendingPairPrompt = null
         }
     }
 
-    private fun renderDevice(node: Node) {
-        val card = ui.card(content, padding = 12)
-        card.addView(
-            ui.row(
-                node.settings.name,
-                "This phone · ID ${node.identity.id.take(8)}",
-                leading = ui.avatar(R.drawable.ic_phone),
-                trailing = listOf(
-                    ui.iconButton(R.drawable.ic_edit, "Rename") {
-                        ui.prompt("Device name", node.settings.name, "Name shown on your computers") {
-                            node.settings.name = it
-                            node.settings.save()
-                            render()
-                        }
-                    },
-                ),
-            ),
-        )
-    }
-
-    private fun renderComputers(node: Node) {
-        content.addView(ui.section("Computers"))
-        val peers = node.peers.all()
-
-        for (pp in node.pendingPairs()) {
-            val card = ui.card(content)
-            card.addView(ui.title("Pair with ${pp.name}?"))
-            card.addView(ui.help("Make sure ${pp.name} shows the same code."))
-            card.addView(
-                ui.text(code(pp.sas), M.style.TextAppearance_Material3_DisplaySmall, R.color.md_primary).apply {
-                    gravity = Gravity.CENTER
-                    letterSpacing = 0.08f
-                    setPadding(0, ui.dp(12), 0, ui.dp(8))
-                },
-            )
-            if (pp.confirmed) {
-                card.addView(ui.help("Waiting for ${pp.name} to confirm…").apply { gravity = Gravity.CENTER })
-                card.addView(LinearProgressIndicator(this).apply { isIndeterminate = true })
-            } else {
-                card.addView(
-                    ui.buttons(
-                        ui.button("Cancel", Ui.Kind.OUTLINED) { bg { node.confirmPairing(pp.id, false) } },
-                        ui.button("Codes match", Ui.Kind.FILLED) { bg { node.confirmPairing(pp.id, true) } },
-                    ),
-                )
-            }
-        }
-
-        for (i in node.pendingIntroductions()) {
-            val by = node.peers.get(i.by)?.name ?: "A paired computer"
-            val card = ui.card(content)
-            card.addView(ui.title("Trust ${i.name}?"))
-            card.addView(
-                ui.help(
-                    "$by vouches for it. Once trusted, ${i.name} reaches this phone directly, " +
-                        "with everything your paired computers can do.",
-                ),
-            )
-            card.addView(
-                ui.buttons(
-                    ui.button("Decline", Ui.Kind.OUTLINED) { bg { node.answerIntroduction(i.id, false) } },
-                    ui.button("Trust", Ui.Kind.FILLED) { bg { node.answerIntroduction(i.id, true) } },
-                ),
-            )
-        }
-
-        for (p in peers) {
-            val online = node.isConnected(p.id)
-            val card = ui.card(content, padding = 12)
-            val more = ui.iconButton(R.drawable.ic_more, "More") {}
-            more.setOnClickListener { v -> showPeerMenu(v, node, p.id, p.name) }
-            card.addView(
-                ui.row(
-                    p.name,
-                    when {
-                        online -> "Connected"
-                        node.isAsleep(p.id) -> "Asleep"
-                        else -> "Not connected"
-                    },
-                    leading = ui.avatar(R.drawable.ic_computer, active = online),
-                    trailing = listOf(more),
-                ),
-            )
-            if (online) {
-                card.addView(
-                    ui.chips(
-                        ui.chip("Send files", R.drawable.ic_upload) {
-                            sendTarget = p.id
-                            pickFiles.launch(arrayOf("*/*"))
-                        },
-                        ui.chip("Browse", R.drawable.ic_folder) {
-                            startActivity(Intent(this, BrowseActivity::class.java).putExtra(BrowseActivity.EXTRA_PEER, p.id))
-                        },
-                        ui.chip("Clipboard", R.drawable.ic_clipboard) { sendClipboardNow() },
-                        ui.chip("Media", R.drawable.ic_music) {
-                            startActivity(Intent(this, MediaActivity::class.java).putExtra(MediaActivity.EXTRA_PEER, p.id))
-                        },
-                        ui.chip("Music", R.drawable.ic_music) {
-                            startActivity(Intent(this, MusicActivity::class.java).putExtra(MusicActivity.EXTRA_PEER, p.id))
-                        },
-                        ui.chip("Now playing", R.drawable.ic_play) {
-                            startActivity(Intent(this, NowPlayingActivity::class.java).putExtra(NowPlayingActivity.EXTRA_PEER, p.id))
-                        },
-                        ui.chip("Remote", R.drawable.ic_screen) {
-                            startActivity(Intent(this, RemoteActivity::class.java).putExtra(RemoteActivity.EXTRA_PEER, p.id))
-                        },
-                        ui.chip("Commands", R.drawable.ic_terminal) {
-                            startActivity(Intent(this, CommandsActivity::class.java).putExtra(CommandsActivity.EXTRA_PEER, p.id))
-                        },
-                        if (PhoneAudio.streamingTo == p.id) {
-                            ui.chip("Stop audio", R.drawable.ic_volume_off) { PhoneAudio.stop(this) }
-                        } else {
-                            ui.chip("Phone audio", R.drawable.ic_volume) { PhoneAudio.start(this, p.id) }
-                        },
-                        if (PhoneScreen.streamingTo == p.id) {
-                            ui.chip("Stop screen", R.drawable.ic_screen) { PhoneScreen.stop(this) }
-                        } else {
-                            ui.chip("Show screen", R.drawable.ic_screen) { PhoneScreen.start(this, p.id) }
-                        },
-                    ),
-                )
-                if (PhoneAudio.streamingTo == p.id) card.addView(audioVolumeRow(p.id))
-            } else if (node.canWake(p.id)) {
-                card.addView(
-                    ui.chips(
-                        ui.chip("Wake up", R.drawable.ic_power) {
-                            snack("Waking ${p.name}…")
-                            bg {
-                                node.wake(p.id)
-                                runOnUiThread { snack("Sent. Tether reconnects when ${p.name} is up.") }
-                            }
-                        },
-                    ),
-                )
-            } else {
-                card.addView(ui.help("Connect once while it's on, and you can wake it from here later."))
-            }
-        }
-
-        val nearby = node.discovery.recent().filter { !node.peers.contains(it.id) }
-        if (nearby.isNotEmpty() || peers.isEmpty()) {
-            val card = ui.card(content, padding = 12)
-            if (nearby.isEmpty()) {
-                card.addView(
-                    ui.row(
-                        "Looking for computers…",
-                        "Start Tether on a computer, then run “tether pair” or open the Tether window.",
-                        leading = ui.avatar(R.drawable.ic_search, active = false),
-                    ),
-                )
-            }
-            nearby.forEachIndexed { i, d ->
-                if (i > 0) card.addView(ui.divider())
-                card.addView(
-                    ui.row(
-                        d.name, d.host,
-                        leading = ui.avatar(R.drawable.ic_computer, active = false),
-                        trailing = listOf(ui.button("Pair", Ui.Kind.TONAL) { bg { node.startPairing(peerId = d.id) } }),
-                    ),
-                )
-            }
-        }
+    /** Someone is waiting on an answer that's given in Settings. */
+    private fun renderWaitingAnswers(node: Node) {
+        val waiting = node.pendingPairs().size + node.pendingIntroductions().size
+        if (waiting == 0) return
         content.addView(
-            ui.button("Pair by IP address", Ui.Kind.TEXT, R.drawable.ic_link) {
-                ui.prompt("Computer's address", "", "192.168.1.20", ok = "Pair") { addr ->
-                    bg { node.startPairing(address = addr) }
+            ui.fullWidth(ui.button("A device is waiting for your answer", Ui.Kind.TONAL, R.drawable.ic_link) { openSettings() }),
+        )
+    }
+
+    private fun fill() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+
+    /** The one thing to do here, filling the screen. */
+    private fun bigButton(label: String, icon: Int, enabled: Boolean = true, onClick: () -> Unit) =
+        ui.button(label, Ui.Kind.FILLED, icon) { onClick() }.apply {
+            isEnabled = enabled
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_TOP
+            iconSize = ui.dp(72)
+            iconPadding = ui.dp(16)
+            cornerRadius = ui.dp(28)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+        }
+
+    private fun renderWake(node: Node, id: String, name: String) {
+        val now = System.currentTimeMillis()
+        val until = wakingUntil[id] ?: 0L
+        val waking = until > now
+        content.addView(
+            bigButton(if (waking) "Waking $name…" else "Wake up $name", R.drawable.ic_power, enabled = !waking) {
+                wakingUntil[id] = System.currentTimeMillis() + WAKE_MS
+                render()
+                node.pool.execute {
+                    val failed = runCatching { node.wake(id) }.exceptionOrNull()
+                    if (failed != null) {
+                        runOnUiThread {
+                            wakingUntil.remove(id)
+                            render()
+                            snack(failed.message ?: "Couldn't send the wake-up")
+                        }
+                    }
                 }
-            }.apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT) },
+                content.postDelayed({ if (!isFinishing) render() }, WAKE_MS + 100)
+            },
+            fill(),
         )
     }
 
-    private fun showPeerMenu(anchor: View, node: Node, id: String, name: String) {
-        PopupMenu(this, anchor).apply {
-            menu.add("Unpair").setOnMenuItemClickListener {
-                ui.dialog()
-                    .setTitle("Unpair $name?")
-                    .setMessage("You'll need to pair again to reconnect.")
-                    .setPositiveButton("Unpair") { _, _ -> bg { node.unpair(id) } }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-                true
-            }
-            show()
-        }
-    }
-
-    private fun renderClipboard(node: Node) {
-        content.addView(ui.section("Clipboard"))
-        val card = ui.card(content)
-        card.addView(
-            ui.switchRow("Sync clipboard", "Text and images, both ways", node.settings.clipboard) {
-                node.settings.clipboard = it
-                node.settings.save()
+    private fun renderControls(id: String) {
+        fun open(activity: Class<*>, extra: String) = startActivity(Intent(this, activity).putExtra(extra, id))
+        val audioOn = PhoneAudio.streamingTo == id
+        val screenOn = PhoneScreen.streamingTo == id
+        val rows = listOf(
+            tile("Remote", R.drawable.ic_screen) { open(RemoteActivity::class.java, RemoteActivity.EXTRA_PEER) } to
+                tile("Now playing", R.drawable.ic_play) { open(NowPlayingActivity::class.java, NowPlayingActivity.EXTRA_PEER) },
+            tile("Music", R.drawable.ic_music) { open(MusicActivity::class.java, MusicActivity.EXTRA_PEER) } to
+                tile("Media", R.drawable.ic_music) { open(MediaActivity::class.java, MediaActivity.EXTRA_PEER) },
+            tile("Browse", R.drawable.ic_folder) { open(BrowseActivity::class.java, BrowseActivity.EXTRA_PEER) } to
+                tile("Send files", R.drawable.ic_upload) {
+                    sendTarget = id
+                    pickFiles.launch(arrayOf("*/*"))
+                },
+            tile("Clipboard", R.drawable.ic_clipboard) { sendClipboardNow() } to
+                tile("Commands", R.drawable.ic_terminal) { open(CommandsActivity::class.java, CommandsActivity.EXTRA_PEER) },
+            tile(if (audioOn) "Stop audio" else "Phone audio", if (audioOn) R.drawable.ic_volume_off else R.drawable.ic_volume, audioOn) {
+                if (audioOn) PhoneAudio.stop(this) else PhoneAudio.start(this, id)
+            } to tile(if (screenOn) "Stop screen" else "Show screen", R.drawable.ic_screen, screenOn) {
+                if (screenOn) PhoneScreen.stop(this) else PhoneScreen.start(this, id)
             },
         )
-        card.addView(ui.fullWidth(ui.button("Send clipboard now", Ui.Kind.TONAL, R.drawable.ic_clipboard) { sendClipboardNow() }))
-        if (TetherService.autoClipboardAvailable(this)) {
-            card.addView(ui.help("Automatic: anything you copy on the phone goes to every connected computer."))
-            return
-        }
-        card.addView(
-            ui.help(
-                "Computers → phone is automatic. Android only lets apps read the clipboard while they're open, " +
-                    "so phone → computers uses the button above, the Quick Settings tile, or “Send to computer” " +
-                    "when you select text. Either way it reaches every connected computer.",
-            ).apply { setPadding(0, ui.dp(12), 0, 0) },
-        )
-        card.addView(
-            ui.help("For fully automatic sync, run this once from any computer (USB debugging on), then restart Tether:")
-                .apply { setPadding(0, ui.dp(8), 0, 0) },
-        )
-        val cmds = "adb shell pm grant $packageName android.permission.READ_LOGS\n" +
-            "adb shell appops set $packageName SYSTEM_ALERT_WINDOW allow"
-        card.addView(
-            ui.code(cmds) {
-                Hub.lastRemoteClip = cmds
-                getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("adb", cmds))
-                snack("Copied")
-            },
-        )
-        card.addView(ui.fullWidth(ui.button("Restart Tether", Ui.Kind.OUTLINED) { restartService() }))
-    }
-
-    private fun renderNotifications(node: Node) {
-        content.addView(ui.section("Notifications"))
-        val card = ui.card(content)
-        card.addView(
-            ui.switchRow(
-                "Connection status notification",
-                "Tether keeps running in the background either way",
-                Notifications.statusVisible(this),
-            ) {
-                Notifications.setStatusVisible(this, it)
-                TetherService.refreshNotification(this, force = true)
-            },
-        )
-        if (!NotifListener.enabled(this)) {
-            card.addView(
-                ui.row(
-                    "Show notifications on your computers",
-                    "Reply to messages from any of them. Tether needs notification access for this.",
-                    leading = ui.avatar(R.drawable.ic_notifications, active = false),
-                ),
+        val gap = ui.dp(5)
+        for ((left, right) in rows) {
+            content.addView(
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    for (t in listOf(left, right)) {
+                        addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { setMargins(gap, gap, gap, gap) })
+                    }
+                },
+                fill(),
             )
-            card.addView(
-                ui.fullWidth(
-                    ui.button("Allow notification access", Ui.Kind.FILLED) {
-                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    },
-                ),
-            )
-            return
         }
-        card.addView(
-            ui.switchRow(
-                "Show notifications on your computers",
-                "Each computer chooses which apps it shows, in its Tether window's Settings",
-                node.settings.forwardNotifications,
-            ) {
-                node.settings.forwardNotifications = it
-                node.settings.save()
+        if (audioOn) content.addView(audioVolumeRow(id))
+    }
+
+    private fun tile(label: String, icon: Int, active: Boolean = false, onClick: () -> Unit): View = ui.column().apply {
+        gravity = Gravity.CENTER
+        background = ui.rounded(if (active) R.color.md_primary_container else R.color.md_surface_container_high, 28)
+        clipToOutline = true
+        isClickable = true
+        isFocusable = true
+        contentDescription = label
+        val ripple = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+        foreground = getDrawable(ripple.resourceId)
+        setOnClickListener { onClick() }
+        addView(ui.icon(icon, if (active) R.color.md_on_primary_container else R.color.md_primary, sizeDp = 36))
+        addView(
+            ui.text(label, M.style.TextAppearance_Material3_TitleMedium, if (active) R.color.md_on_primary_container else R.color.md_on_surface).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, ui.dp(8), 0, 0)
             },
         )
     }
 
     /** Volume the computer plays this phone's audio at; sent when the finger lifts. */
     private fun audioVolumeRow(peer: String): View {
-        val slider = Slider(this).apply {
-            valueFrom = 0f
-            valueTo = 100f
+        val slider = ui.bigSlider(100f).apply {
             stepSize = 1f
-            labelBehavior = LabelFormatter.LABEL_GONE
             value = Math.round((PhoneAudio.volume[peer] ?: 1.0) * 100).toFloat().coerceIn(0f, 100f)
             addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
                 override fun onStartTrackingTouch(slider: Slider) {
@@ -447,160 +315,7 @@ class MainActivity : AppCompatActivity() {
             })
         }
         audioSlider = peer to slider
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(ui.iconButton(R.drawable.ic_volume_off, "Quieter") {
-                slider.value = (slider.value - 10f).coerceAtLeast(0f)
-                PhoneAudio.setVolume(this@MainActivity, peer, slider.value / 100.0)
-            })
-            addView(slider, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(ui.iconButton(R.drawable.ic_volume, "Louder") {
-                slider.value = (slider.value + 10f).coerceAtMost(100f)
-                PhoneAudio.setVolume(this@MainActivity, peer, slider.value / 100.0)
-            })
-        }
-    }
-
-    private fun renderAudio() {
-        content.addView(ui.section("Audio"))
-        val card = ui.card(content)
-        card.addView(
-            ui.switchRow(
-                "Silence this phone while streaming",
-                "“Play audio here” on a computer sends what this phone plays to it",
-                PhoneAudio.silencePhone(this),
-            ) { PhoneAudio.setSilencePhone(this, it) },
-        )
-    }
-
-    private fun renderFiles(node: Node) {
-        content.addView(ui.section("Files"))
-        if (!Environment.isExternalStorageManager()) {
-            val warn = ui.card(content)
-            warn.addView(
-                ui.row(
-                    "Allow access to all files",
-                    "Needed so your computers can browse and sync folders.",
-                    leading = ui.avatar(R.drawable.ic_lock),
-                ),
-            )
-            warn.addView(
-                ui.fullWidth(
-                    ui.button("Open settings", Ui.Kind.FILLED) {
-                        startActivity(
-                            Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")),
-                        )
-                    },
-                ),
-            )
-        }
-
-        val shared = ui.card(content)
-        shared.addView(ui.title("Shared from this phone"))
-        shared.addView(
-            ui.help("Every paired computer can browse and edit these. Theirs appear in the Files app under their names."),
-        )
-        for ((name, path) in node.settings.shares) {
-            shared.addView(
-                ui.row(
-                    name, path,
-                    leading = ui.icon(R.drawable.ic_folder, R.color.md_primary).apply {
-                        (layoutParams as LinearLayout.LayoutParams).marginEnd = ui.dp(16)
-                    },
-                    trailing = listOf(
-                        ui.iconButton(R.drawable.ic_delete, "Stop sharing $name") {
-                            node.updateShares(node.settings.shares - name)
-                            render()
-                        },
-                    ),
-                    subtitleEllipsize = TextUtils.TruncateAt.MIDDLE,
-                ),
-            )
-        }
-        shared.addView(ui.button("Share a folder", Ui.Kind.TEXT, R.drawable.ic_add) { pickShareFolder.launch(null) })
-
-        val synced = ui.card(content)
-        synced.addView(ui.title("Synced folders"))
-        synced.addView(ui.help("Kept identical on every device that syncs a folder with the same name."))
-        for (f in node.settings.sync) {
-            synced.addView(
-                ui.row(
-                    f.id, f.path,
-                    leading = ui.icon(R.drawable.ic_sync, R.color.md_primary).apply {
-                        (layoutParams as LinearLayout.LayoutParams).marginEnd = ui.dp(16)
-                    },
-                    trailing = listOf(
-                        ui.iconButton(R.drawable.ic_delete, "Stop syncing ${f.id}") {
-                            node.updateSyncFolders(node.settings.sync.filter { it.id != f.id })
-                            render()
-                        },
-                    ),
-                    subtitleEllipsize = TextUtils.TruncateAt.MIDDLE,
-                ),
-            )
-        }
-        synced.addView(ui.button("Sync a folder", Ui.Kind.TEXT, R.drawable.ic_add) { pickSyncFolder.launch(null) })
-
-        content.addView(ui.help("Received files are saved in Download/Tether.").apply { setPadding(ui.dp(4), 0, ui.dp(4), 0) })
-    }
-
-    private fun renderBackground() {
-        val pm = getSystemService(PowerManager::class.java)
-        if (pm == null || pm.isIgnoringBatteryOptimizations(packageName)) return
-        content.addView(ui.section("Background"))
-        val card = ui.card(content)
-        card.addView(
-            ui.row(
-                "Stay connected in the background",
-                "Without this, Android may pause Tether when the screen is off.",
-                leading = ui.avatar(R.drawable.ic_battery),
-            ),
-        )
-        card.addView(
-            ui.fullWidth(
-                ui.button("Allow", Ui.Kind.FILLED) {
-                    @Suppress("BatteryLife")
-                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-                },
-            ),
-        )
-    }
-
-    private fun renderAppearance() {
-        content.addView(ui.section("Appearance"))
-        val card = ui.card(content)
-        card.addView(
-            ui.row(
-                "App icon",
-                Appearance.icon(this).label,
-                leading = ui.avatar(R.drawable.ic_palette),
-                onClick = { showIconPicker() },
-            ),
-        )
-        if (Appearance.systemColorsAvailable) {
-            card.addView(
-                ui.switchRow("Use system colors", "Take the app's colors from your wallpaper", Appearance.systemColors(this)) {
-                    Appearance.setSystemColors(this, it)
-                    recreate()
-                },
-            )
-        }
-    }
-
-    private fun showIconPicker() {
-        val icons = Appearance.icons()
-        val current = icons.indexOf(Appearance.icon(this))
-        ui.dialog()
-            .setTitle("App icon")
-            .setSingleChoiceItems(icons.map { it.label }.toTypedArray(), current) { d, which ->
-                Appearance.setIcon(this, icons[which])
-                d.dismiss()
-                snack("Some launchers take a moment to update the icon")
-                render()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        return ui.volumeRow(slider).apply { setPadding(ui.dp(8), ui.dp(8), ui.dp(8), 0) }
     }
 
     // -- actions --------------------------------------------------------------------------
@@ -617,8 +332,8 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Pair with $name?")
             .setMessage("Make sure $name shows the same code.")
             .setView(codeView)
-            .setPositiveButton("Codes match") { _, _ -> bg { Hub.node?.confirmPairing(id, true) } }
-            .setNegativeButton("Cancel") { _, _ -> bg { Hub.node?.confirmPairing(id, false) } }
+            .setPositiveButton("Codes match") { _, _ -> Thread { Hub.node?.confirmPairing(id, true) }.start() }
+            .setNegativeButton("Cancel") { _, _ -> Thread { Hub.node?.confirmPairing(id, false) }.start() }
             .setCancelable(false)
             .show()
     }
@@ -633,58 +348,5 @@ class MainActivity : AppCompatActivity() {
             "image" -> snack("Image sent")
             else -> snack("Clipboard sent")
         }
-    }
-
-    /** Pull to refresh: drop dead connections, reconnect, look for devices nearby, rescan synced folders. */
-    private fun refreshAll(done: () -> Unit) {
-        val node = Hub.node ?: return done()
-        Thread {
-            runCatching { node.checkConnections() }
-            runCatching { node.discovery.announce() }
-            runCatching { node.rescan() }
-            Thread.sleep(1_200) // let reconnections and beacon answers arrive
-            runOnUiThread {
-                if (!isFinishing) render()
-                done()
-            }
-        }.start()
-    }
-
-    private fun restartService() {
-        stopService(Intent(this, TetherService::class.java))
-        content.postDelayed({ Hub.start(this); render() }, 800)
-    }
-
-    private fun onShareFolderPicked(uri: Uri?) {
-        val node = Hub.node ?: return
-        uri ?: return
-        val path = treeToPath(uri) ?: return snack("That location can't be shared")
-        var name = path.trimEnd('/').substringAfterLast('/').ifEmpty { "Storage" }
-        while (node.settings.shares.containsKey(name)) name += "+"
-        node.updateShares(node.settings.shares + (name to path))
-        render()
-    }
-
-    private fun onSyncFolderPicked(uri: Uri?) {
-        val node = Hub.node ?: return
-        uri ?: return
-        val path = treeToPath(uri) ?: return snack("That location can't be synced")
-        val suggested = path.trimEnd('/').substringAfterLast('/').lowercase()
-            .replace(Regex("[^a-z0-9_-]"), "-").trim('-').ifEmpty { "folder" }
-        ui.prompt("Name this folder", suggested, "Use the same name on each device", ok = "Sync") { raw ->
-            val id = raw.lowercase().replace(Regex("[^a-z0-9_-]"), "-")
-            node.updateSyncFolders(node.settings.sync.filter { it.id != id } + SyncFolder(id, path))
-            snack("Now add “$id” on each computer that should have it")
-            render()
-        }
-    }
-
-    /** Converts a document-tree URI from the system picker into a filesystem path. */
-    private fun treeToPath(uri: Uri): String? {
-        val docId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
-        val volume = docId.substringBefore(':')
-        val rel = docId.substringAfter(':', "")
-        val base = if (volume == "primary") Environment.getExternalStorageDirectory().path else "/storage/$volume"
-        return if (rel.isEmpty()) base else "$base/$rel"
     }
 }

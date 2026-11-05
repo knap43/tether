@@ -115,6 +115,11 @@
             android:launchMode="singleTop" />
 
         <activity
+            android:name=".app.SettingsActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <activity
             android:name=".app.NowPlayingActivity"
             android:exported="false"
             android:launchMode="singleTop" />
