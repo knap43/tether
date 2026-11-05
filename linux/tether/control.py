@@ -133,11 +133,9 @@ class ControlServer:
         if cmd == "set":
             key, value = req["key"], req["value"]
             if key not in ("name", "clipboard", "download_dir", "scan_interval", "remote_shell", "command_timeout",
-                           "notifications", "media", "phone_audio", "phone_screen", "screen_sync_ms", "phone_play", "phone_remote", "music_dir", "accept_introductions"):
+                           "notifications", "phone_audio", "phone_screen", "screen_sync_ms", "phone_play", "phone_remote", "music_dir", "accept_introductions"):
                 raise ProtoError("bad_request", f"cannot set {key}")
             n.cfg[key] = value
-            if key == "media":
-                await n.media_setting_changed()
             if key == "phone_audio":
                 await n.phone_audio_setting_changed()
             if key == "phone_screen":

@@ -372,24 +372,7 @@ async def main(root: Path):
     A._on_media_change(FakeMedia.st)
     await until(lambda: any(m["t"] == "media_update" for m in b_got), what="media push")
 
-    # Switched off: the phone is told at once, sees no players, and commands are refused.
-    b_got.clear()
-    A.cfg["media"] = False
-    await A.media_setting_changed()
-    await until(lambda: any(m["t"] == "media_update" and m.get("disabled") for m in b_got), what="media off push")
-    r = await sb.request({"t": "media_state"})
-    assert r["disabled"] and r["players"] == [], r
-    try:
-        await sb.request({"t": "media_cmd", "action": "next"})
-        raise AssertionError("media command allowed while off")
-    except ProtoError as e:
-        assert e.code == "denied"
-    b_got.clear()
-    A._on_media_change(FakeMedia.st)
-    await asyncio.sleep(0.3)
-    assert not b_got, "media update pushed while off"
-    A.cfg["media"] = True
-    print("ok  media control (and switching it off)")
+    print("ok  media control")
 
     big = root / "big.bin"
     big.write_bytes(os.urandom(3_000_000))
@@ -701,6 +684,14 @@ async def main(root: Path):
     await until(lambda: FakeInput.made[0].closed and A.remote is None, what="remote closed")
     A.cfg["phone_remote"] = False
     print("ok  remote input")
+
+    # --- suspend: answers first, then runs the command (a harmless stand-in here, never the real one)
+    with tempfile.TemporaryDirectory() as d:
+        flag = Path(d) / "suspended"
+        A.suspend_command = ["touch", str(flag)]
+        await sb.request({"t": "suspend"})
+        await until(flag.exists, what="the suspend command")
+    print("ok  suspend")
 
     # --- reconnect after drop
     sa.channel.close()

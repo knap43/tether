@@ -21,6 +21,7 @@ import com.google.android.material.slider.Slider
 import dev.tether.R
 import dev.tether.core.Node
 import dev.tether.core.NodeEvent
+import dev.tether.core.suspendComputer
 import com.google.android.material.R as M
 
 /** One computer at a time, and everything you can do with it. Setting things up lives in [SettingsActivity]. */
@@ -246,16 +247,15 @@ class MainActivity : AppCompatActivity() {
         val screenOn = PhoneScreen.streamingTo == id
         val rows = listOf(
             tile("Remote", R.drawable.ic_screen) { open(RemoteActivity::class.java, RemoteActivity.EXTRA_PEER) } to
-                tile("Now playing", R.drawable.ic_play) { open(NowPlayingActivity::class.java, NowPlayingActivity.EXTRA_PEER) },
+                tile("Media", R.drawable.ic_play) { open(MediaActivity::class.java, MediaActivity.EXTRA_PEER) },
             tile("Music", R.drawable.ic_music) { open(MusicActivity::class.java, MusicActivity.EXTRA_PEER) } to
-                tile("Media", R.drawable.ic_music) { open(MediaActivity::class.java, MediaActivity.EXTRA_PEER) },
-            tile("Browse", R.drawable.ic_folder) { open(BrowseActivity::class.java, BrowseActivity.EXTRA_PEER) } to
-                tile("Send files", R.drawable.ic_upload) {
-                    sendTarget = id
-                    pickFiles.launch(arrayOf("*/*"))
-                },
-            tile("Clipboard", R.drawable.ic_clipboard) { sendClipboardNow() } to
-                tile("Commands", R.drawable.ic_terminal) { open(CommandsActivity::class.java, CommandsActivity.EXTRA_PEER) },
+                tile("Browse", R.drawable.ic_folder) { open(BrowseActivity::class.java, BrowseActivity.EXTRA_PEER) },
+            tile("Send files", R.drawable.ic_upload) {
+                sendTarget = id
+                pickFiles.launch(arrayOf("*/*"))
+            } to tile("Clipboard", R.drawable.ic_clipboard) { sendClipboardNow() },
+            tile("Commands", R.drawable.ic_terminal) { open(CommandsActivity::class.java, CommandsActivity.EXTRA_PEER) } to
+                tile("Suspend", R.drawable.ic_power) { confirmSuspend(id) },
             tile(if (audioOn) "Stop audio" else "Phone audio", if (audioOn) R.drawable.ic_volume_off else R.drawable.ic_volume, audioOn) {
                 if (audioOn) PhoneAudio.stop(this) else PhoneAudio.start(this, id)
             } to tile(if (screenOn) "Stop screen" else "Show screen", R.drawable.ic_screen, screenOn) {
@@ -334,6 +334,22 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Codes match") { _, _ -> Thread { Hub.node?.confirmPairing(id, true) }.start() }
             .setNegativeButton("Cancel") { _, _ -> Thread { Hub.node?.confirmPairing(id, false) }.start() }
             .setCancelable(false)
+            .show()
+    }
+
+    /** A stray tap shouldn't put the computer to sleep in the middle of something. */
+    private fun confirmSuspend(id: String) {
+        val node = Hub.node ?: return
+        val name = node.peers.get(id)?.name ?: "the computer"
+        ui.dialog()
+            .setTitle("Suspend $name?")
+            .setPositiveButton("Suspend") { _, _ ->
+                node.pool.execute {
+                    val failed = runCatching { node.suspendComputer(id) }.exceptionOrNull()
+                    if (failed != null) runOnUiThread { snack("Couldn't suspend $name") }
+                }
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

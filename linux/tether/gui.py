@@ -341,7 +341,6 @@ class TetherWindow(Adw.ApplicationWindow):
             self.timeout_row.set_value(float(st.get("command_timeout", 120)))
             self.clip_row.set_active(bool(st["clipboard"]))
             self.notif_row.set_active(bool(st.get("notifications", True)))
-            self.media_row.set_active(bool(st.get("media", True)))
             self.audio_row.set_active(bool(st.get("phone_audio", True)))
             self.audio_row.set_subtitle(
                 "Start it from the phone, or with the speaker button by the phone" if st.get("phone_audio_available", True)
@@ -357,10 +356,6 @@ class TetherWindow(Adw.ApplicationWindow):
             self.play_row.set_subtitle(
                 "Links and files shared to “Play on computer”, and this computer's music, from the phone" if st.get("phone_play_available", True)
                 else "Needs mpv, which isn't installed"
-            )
-            self.media_row.set_subtitle(
-                "Play, pause, skip, seek and volume, from the phone" if st.get("media_available", True)
-                else "Needs playerctl, which isn't installed"
             )
             self.apps.update({"apps": st.get("notif_apps", []), "muted": st.get("notif_muted", [])}, self._app_rows)
             for t in st.get("transfers", []):
@@ -948,10 +943,6 @@ class TetherWindow(Adw.ApplicationWindow):
         page.add(self.apps.group)
 
         media = Adw.PreferencesGroup(title="Media")
-        self.media_row = Adw.SwitchRow(title="Let the phone control media")
-        self.media_row.connect("notify::active", lambda r, _p: self._updating or self.call(
-            "set", key="media", value=r.get_active()))
-        media.add(self.media_row)
         self.audio_row = Adw.SwitchRow(title="Play phone audio here")
         self.audio_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="phone_audio", value=r.get_active()))

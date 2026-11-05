@@ -216,7 +216,7 @@ followed by the image (≤ 16 MiB). The receiver puts it on its clipboard.
 
 | request | fields | answer |
 |---|---|---|
-| `media_state` | — | `players`, `volume`, `available`, `disabled` (true while the user has media control off: no players, and `media_cmd` is refused with `denied`) |
+| `media_state` | — | `players`, `volume`, `available` |
 | `media_cmd` | `action`, `player` (optional), `value` | same as `media_state`, after the command |
 
 Actions: `play_pause`, `play`, `pause`, `next`, `previous`, `stop`,
@@ -316,6 +316,11 @@ answers, as they may come many times a second, `{"t": "remote", "kind": …}`:
 `down`, `f5`; there is no way to type anything else). `{"t": "remote_close"}` ends it.
 `{"t": "remote_volume", "req": n}` is answered with `volume` (0–1), the computer's
 output volume; `audio_volume` sets it, as it does for phone audio.
+
+### Suspend (phone → desktop)
+
+`{"t": "suspend", "req": n}` is answered `ok`, and the desktop then suspends; its
+usual `sleeping` notice follows.
 
 ### Wake-on-LAN (desktop → phone)
 

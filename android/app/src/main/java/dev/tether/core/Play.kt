@@ -150,3 +150,9 @@ fun Node.remoteScroll(peerId: String, steps: Int) {
 fun Node.remoteKey(peerId: String, key: String) {
     session(peerId)?.channel?.trySend(jobj("t" to "remote", "kind" to "key", "key" to key))
 }
+
+/** Puts the computer to sleep. */
+fun Node.suspendComputer(peerId: String) {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    s.channel.request(jobj("t" to "suspend"))
+}

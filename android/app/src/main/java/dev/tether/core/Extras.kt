@@ -128,8 +128,6 @@ data class MediaState(
     val volume: Double?,
     val muted: Boolean,
     val available: Boolean,
-    /** The computer has media control switched off. */
-    val disabled: Boolean = false,
 ) {
     val active: MediaPlayerInfo? get() = players.firstOrNull()
 
@@ -151,7 +149,7 @@ data class MediaState(
             } ?: emptyList()
             val vol = o.obj("volume")
             val level = (vol?.get("level") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()
-            return MediaState(players, level, vol?.bool("muted") == true, o.bool("available") != false, o.bool("disabled") == true)
+            return MediaState(players, level, vol?.bool("muted") == true, o.bool("available") != false)
         }
     }
 }

@@ -57,7 +57,6 @@ def cmd_status(paths, args):
         return
     print(f"This device: {st['name']} [{st['id'][:8]}]")
     print(f"Clipboard:   {'on' if st['clipboard'] else 'off'} ({st['clipboard_backend']})")
-    print(f"Media:       {'on' if st.get('media', True) else 'off'} (the phone controls players here)")
     print(f"Phone audio: {'on' if st.get('phone_audio', True) else 'off'} (the phone may play its sound here)")
     print(f"Phone screen: {'on' if st.get('phone_screen', True) else 'off'} (the phone may show its screen here)")
     print(f"Phone remote: {'on' if st.get('phone_remote', False) else 'off'} (the phone may use the mouse and keyboard)")
@@ -513,7 +512,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_wol)
 
     p = sub.add_parser("set", help="change a setting: name, clipboard, download_dir, scan_interval, "
-                                   "remote_shell, command_timeout, notifications, media, phone_audio, phone_screen, "
+                                   "remote_shell, command_timeout, notifications, phone_audio, phone_screen, "
                                    "screen_sync_ms, phone_play, phone_remote, music_dir")
     p.add_argument("key")
     p.add_argument("value")

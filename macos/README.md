@@ -46,7 +46,6 @@ The CLI is the same as on Linux (`tether status`, `send`, `clip`, `share`, `sync
 | `tether mount` | mounts the phone and opens it in Finder; `--unmount` ejects it |
 | `tether gui` | opens the Tether app |
 | `tether wol enable` | turns on **Wake for network access** (asks for an administrator password). It wakes the Mac from sleep, not from shut down, and laptops only while on power. |
-| `tether set media …` | not available |
 
 Saved commands run in your login shell (zsh, fish, …) in your home folder, so Mac commands work as you'd expect:
 
