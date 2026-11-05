@@ -1,6 +1,8 @@
 package dev.tether.core
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 
@@ -19,10 +21,13 @@ interface PlayableFile {
 
 private val playable = ConcurrentHashMap<String, PlayableFile>()
 
-/** Asks a computer to play what's at a web link itself. RemoteError "not_playable" if it can't fetch it. */
-fun Node.playUrl(peerId: String, url: String) {
+/**
+ * Asks a computer to play what's at a web link itself. True if it had to open the link in its
+ * browser instead; RemoteError "not_playable" if it couldn't do that either.
+ */
+fun Node.playUrl(peerId: String, url: String): Boolean {
     val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
-    s.channel.request(jobj("t" to "play_url", "url" to url), timeoutMs = 45_000)
+    return s.channel.request(jobj("t" to "play_url", "url" to url), timeoutMs = 45_000).msg.bool("browser") == true
 }
 
 /** Offers [files] to a computer's player in place of any offered before. */
@@ -58,4 +63,56 @@ internal fun onPlayRead(ch: Channel, msg: JsonObject) {
         }
     }
     ch.replyStream(msg, input, length, "size" to f.size, "length" to length)
+}
+
+data class MusicEntry(val name: String, val dir: Boolean, val size: Long)
+
+/** What the computer's music player is doing. Positions and lengths are in seconds. */
+data class MusicState(
+    val playing: Boolean,
+    val title: String?,
+    val artist: String?,
+    val paused: Boolean,
+    val position: Double,
+    val length: Double,
+    val volume: Double,
+)
+
+/** A folder of the computer's music; folders first, then tracks. */
+fun Node.musicList(peerId: String, path: String): List<MusicEntry> {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    val res = s.channel.request(jobj("t" to "music_list", "path" to path))
+    return res.msg.arr("entries").orEmpty().mapNotNull { it as? JsonObject }.map {
+        MusicEntry(it.str("name").orEmpty(), it.bool("dir") == true, it.long("size") ?: 0L)
+    }
+}
+
+/** Plays a track, followed by the rest of its folder, or everything inside a folder. */
+fun Node.musicPlay(peerId: String, path: String) {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    s.channel.request(jobj("t" to "music_play", "path" to path))
+}
+
+fun Node.musicState(peerId: String): MusicState {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    return parseMusicState(s.channel.request(jobj("t" to "music_state")).msg)
+}
+
+/** Actions: toggle, next, previous, stop, position (seconds), volume (0-100). */
+fun Node.musicCommand(peerId: String, action: String, value: Double? = null): MusicState {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    return parseMusicState(s.channel.request(jobj("t" to "music_cmd", "action" to action, "value" to value)).msg)
+}
+
+private fun parseMusicState(m: JsonObject): MusicState {
+    fun number(k: String) = (m[k] as? JsonPrimitive)?.doubleOrNull
+    return MusicState(
+        playing = m.bool("playing") == true,
+        title = m.str("title"),
+        artist = m.str("artist"),
+        paused = m.bool("paused") == true,
+        position = number("position") ?: 0.0,
+        length = number("length") ?: 0.0,
+        volume = number("volume") ?: 100.0,
+    )
 }

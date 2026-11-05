@@ -259,6 +259,9 @@ class MainActivity : AppCompatActivity() {
                         ui.chip("Media", R.drawable.ic_music) {
                             startActivity(Intent(this, MediaActivity::class.java).putExtra(MediaActivity.EXTRA_PEER, p.id))
                         },
+                        ui.chip("Music", R.drawable.ic_music) {
+                            startActivity(Intent(this, MusicActivity::class.java).putExtra(MusicActivity.EXTRA_PEER, p.id))
+                        },
                         ui.chip("Commands", R.drawable.ic_terminal) {
                             startActivity(Intent(this, CommandsActivity::class.java).putExtra(CommandsActivity.EXTRA_PEER, p.id))
                         },

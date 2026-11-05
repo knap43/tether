@@ -26,6 +26,7 @@ from .fsops import TMP_PREFIX, Shares
 from .media import Media
 from .sleepwatch import SleepWatch
 from . import phoneaudio
+from . import music
 from . import phoneplay
 from . import phonescreen
 from .transfers import Transfer, Transfers
@@ -212,6 +213,7 @@ class Node:
         self.screen_in = None  # (session, Incoming) of the phone screen stream showing here
         self.screen_sink = phonescreen.ViewerSink
         self.player = None  # what the phone asked us to play: (Player, FileServer or None, session)
+        self.music = None  # the MusicPlayer the phone is steering
         self.tasks: set[asyncio.Task] = set()
         self.sleepwatch = SleepWatch(self.before_sleep, self.after_wake)
         self.asleep: set[str] = set()  # peers that told us they went to sleep, until they're back
@@ -1222,6 +1224,7 @@ class Node:
         if isinstance(volume, bool) or not isinstance(volume, (int, float)):
             raise ProtoError("bad_request", "volume must be a number from 0 to 1")
         volume = round(min(1.0, max(0.0, float(volume))), 3)
+        log.info("output volume set to %.0f%% by %s", volume * 100, origin.name if origin else "this computer")
         if self.media.has_wpctl:
             await self.media.set_volume(volume)
         else:
@@ -1326,10 +1329,13 @@ class Node:
         url = msg.get("url")
         if not phoneplay.valid_url(url):
             raise ProtoError("bad_request")
-        if not await phoneplay.can_play(url):
+        if await phoneplay.can_play(url):
+            await self._start_player(s, [url], f"{s.name} – Tether")
+            await s.channel.reply(msg)
+        elif phoneplay.open_in_browser(url):
+            await s.channel.reply(msg, browser=True)
+        else:
             raise ProtoError("not_playable")
-        await self._start_player(s, [url], f"{s.name} – Tether")
-        await s.channel.reply(msg)
 
     async def _h_play_files(self, s, msg):
         self._check_play()
@@ -1352,6 +1358,7 @@ class Node:
 
     async def _start_player(self, s, targets, title, server=None, fullscreen=True) -> None:
         await self._stop_player()  # one at a time; the newest wins
+        await self._stop_music()
         player = phoneplay.Player(targets, title, fullscreen)
         self.player = (player, server, s)
         self.player_watch = asyncio.ensure_future(self._watch_player(player))
@@ -1371,6 +1378,49 @@ class Node:
             await server.stop()
             if not s.channel.closed.is_set():
                 await s.channel.send({"t": "play_end"})
+
+    # -- the computer's music, with the phone as the remote -----------------------------------
+
+    def _music_root(self):
+        return music.music_dir(self.cfg["music_dir"])
+
+    async def _h_music_list(self, s, msg):
+        self._check_play()
+        root = self._music_root()
+        entries = await asyncio.to_thread(music.list_folder, root, msg.get("path", "/"))
+        await s.channel.reply(msg, entries=entries, root=root.name)
+
+    async def _h_music_play(self, s, msg):
+        self._check_play()
+        tracks, start = await asyncio.to_thread(music.make_queue, self._music_root(), msg.get("path"))
+        await self._stop_player()
+        volume = 100
+        if self.music and self.music.alive():  # keep the level chosen for the last queue
+            state = await self.music.state()
+            volume = state.get("volume") or 100
+        await self._stop_music()
+        self.music = music.MusicPlayer(tracks, start, volume)
+        await s.channel.reply(msg)
+
+    async def _h_music_state(self, s, msg):
+        await s.channel.reply(msg, **await self._music_state())
+
+    async def _h_music_cmd(self, s, msg):
+        self._check_play()
+        action = msg.get("action")
+        if action == "stop":
+            await self._stop_music()
+        elif self.music and self.music.alive():
+            await self.music.command(action, msg.get("value"))
+        await s.channel.reply(msg, **await self._music_state())
+
+    async def _music_state(self) -> dict:
+        return await self.music.state() if self.music else {"playing": False}
+
+    async def _stop_music(self) -> None:
+        if self.music:
+            player, self.music = self.music, None
+            await player.stop()
 
     async def _h_screen_state(self, s, msg):
         """The phone reports it stopped (or never started, e.g. the user declined)."""

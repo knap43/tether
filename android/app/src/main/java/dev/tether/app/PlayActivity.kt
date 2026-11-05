@@ -20,7 +20,7 @@ import com.google.android.material.R as MR
 
 /**
  * Target of the share sheet and "Open with": the computer plays the original link or file itself.
- * A link it can't fetch (a page behind a login, say) falls back to showing this phone's screen.
+ * A link it can't fetch (a page behind a login, say) opens in its browser instead.
  */
 class PlayActivity : AppCompatActivity() {
     private lateinit var ui: Ui
@@ -81,15 +81,17 @@ class PlayActivity : AppCompatActivity() {
     private fun play(peer: String, name: String, url: String?, files: List<PlayableFile>) {
         val node = Hub.node ?: return finishWith("No computer connected")
         try {
-            if (files.isNotEmpty()) node.playFiles(peer, files) else node.playUrl(peer, url!!)
-            finishWith("Playing on $name")
+            when {
+                files.isNotEmpty() -> {
+                    node.playFiles(peer, files)
+                    finishWith("Playing on $name")
+                }
+                node.playUrl(peer, url!!) -> finishWith("Opened in the browser on $name")
+                else -> finishWith("Opening on $name; a video can take a few seconds to start", long = true)
+            }
         } catch (e: RemoteError) {
             when (e.code) {
-                "not_playable" -> runOnUiThread {
-                    Toast.makeText(this, "$name can't open that link itself, so showing your screen instead", Toast.LENGTH_LONG).show()
-                    PhoneScreen.start(this, peer)
-                    finish()
-                }
+                "not_playable" -> finishWith("$name couldn't open that link")
                 "denied" -> finishWith("$name has playing shared things turned off")
                 "unsupported" -> finishWith("$name needs mpv to play this")
                 else -> finishWith("Couldn't play it: ${e.message}")
@@ -99,8 +101,8 @@ class PlayActivity : AppCompatActivity() {
         }
     }
 
-    private fun finishWith(msg: String) = runOnUiThread {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun finishWith(msg: String, long: Boolean = false) = runOnUiThread {
+        Toast.makeText(this, msg, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
         finish()
     }
 

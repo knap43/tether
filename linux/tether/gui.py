@@ -354,7 +354,7 @@ class TetherWindow(Adw.ApplicationWindow):
             )
             self.play_row.set_active(bool(st.get("phone_play", True)))
             self.play_row.set_subtitle(
-                "Share a link or file to “Play on computer” on the phone" if st.get("phone_play_available", True)
+                "Links and files shared to “Play on computer”, and this computer's music, from the phone" if st.get("phone_play_available", True)
                 else "Needs mpv, which isn't installed"
             )
             self.media_row.set_subtitle(

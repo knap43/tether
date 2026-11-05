@@ -36,8 +36,7 @@ def valid_url(url) -> bool:
 
 
 async def can_play(url: str) -> bool:
-    """Whether yt-dlp finds something to play at the link; a page that only a phone's logged-in
-    browser can open answers no, and the phone shows its screen instead."""
+    """Whether yt-dlp finds something to play at the link; a page behind a login answers no."""
     if not shutil.which("yt-dlp"):
         return False
     if urlsplit(url).hostname in SURE_HOSTS:
@@ -54,11 +53,25 @@ async def can_play(url: str) -> bool:
         return False
 
 
+def open_in_browser(url: str) -> bool:
+    """For what yt-dlp can't fetch: the computer's own browser can, once logged in there."""
+    if not shutil.which("xdg-open"):
+        return False
+    try:
+        subprocess.Popen(["xdg-open", url], env=display_env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except (OSError, ProtoError):
+        return False
+    return True
+
+
 class Player:
     """An mpv window: fullscreen for video, small for music."""
 
     def __init__(self, targets: list[str], title: str, fullscreen: bool = True):
-        cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=immediate", "--keep-open=no",
+        # The window waits for the first frame: a link takes many seconds to open, and a black screen says nothing.
+        cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes", "--keep-open=no",
+               "--ytdl-format=bestvideo+bestaudio[audio_channels<=2]/bestvideo+bestaudio/best",
                "--ytdl-raw-options-append=no-playlist=", "--", *targets]
         self.proc = subprocess.Popen(cmd, env=display_env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL, start_new_session=True)

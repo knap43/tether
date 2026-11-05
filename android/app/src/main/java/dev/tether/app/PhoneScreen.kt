@@ -189,7 +189,16 @@ internal class ScreenStream(
                     enc.release()
                     continue
                 }
-                enc.configure(format(w, h), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                val format = format(w, h)
+                // High profile holds more detail at the same bitrate, where the encoder has it.
+                enc.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).profileLevels
+                    .filter { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh }
+                    .maxByOrNull { it.level }
+                    ?.let {
+                        format.setInteger(MediaFormat.KEY_PROFILE, it.profile)
+                        format.setInteger(MediaFormat.KEY_LEVEL, it.level)
+                    }
+                enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                 val input = enc.createInputSurface()
                 enc.start()
                 return Triple(enc, input, w to h)
@@ -207,6 +216,7 @@ internal class ScreenStream(
         setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         setInteger(MediaFormat.KEY_BIT_RATE, (w * h * BITS_PER_PIXEL).coerceIn(MIN_BITRATE, MAX_BITRATE))
         setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
+        setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, FRAME_RATE.toFloat())
         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_SECONDS)
         setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0) // reordering would only add delay
         setInteger(MediaFormat.KEY_PRIORITY, 0) // real time
@@ -413,16 +423,16 @@ internal class ScreenStream(
     }
 
     private companion object {
-        val LONG_EDGES = intArrayOf(2560, 1920, 1600, 1280, 1024, 800)
+        val LONG_EDGES = intArrayOf(1920, 1600, 1280, 1024, 800)
         const val MIN_BITRATE = 2_000_000
-        const val MAX_BITRATE = 12_000_000
+        const val MAX_BITRATE = 10_000_000
         const val BITS_PER_PIXEL = 6
-        const val FRAME_RATE = 60
+        const val FRAME_RATE = 30 // films need no more, and a phone already busy decoding one is spared the rest
         const val KEYFRAME_SECONDS = 2
         const val REPEAT_AFTER_US = 100_000L
         const val DEQUEUE_US = 50_000L
         const val POLL_MS = 100L
-        const val MAX_QUEUED_FRAMES = 20 // a third of a second at full rate
+        const val MAX_QUEUED_FRAMES = 15 // half a second
         const val MAX_QUEUED_BYTES = 1024 * 1024
         const val RESUME_MS = 45_000L
         const val RESUME_POLL_MS = 200L

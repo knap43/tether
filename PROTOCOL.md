@@ -273,15 +273,35 @@ The phone hands over what it wants played, and the desktop plays the original
 rather than a capture.
 
 `{"t": "play_url", "req": n, "url": "https://…"}` is answered `ok` once playback
-has started, or `not_playable` if nothing playable was found there (the phone
-then falls back to streaming its screen), `denied` while the desktop has this
-off, `unsupported`, or `bad_request`. Only `http` and `https` links are accepted.
+has started; with `"browser": true` if nothing playable was found there and the
+link opened in the desktop's browser instead; or `not_playable` if that failed
+too, `denied` while the desktop has this off, `unsupported`, or `bad_request`.
+Only `http` and `https` links are accepted.
 
 `{"t": "play_files", "req": n, "files": [{"id", "name", "size", "mime"}]}` starts
 a playlist of files the phone holds, with the same answers. To read them, the
 desktop sends `{"t": "play_read", "req": n, "id", "offset", "length"}`, answered
 like `fs_read` with `stream`, `size` and `length`, so seeking works.
 `{"t": "play_end"}` (desktop → phone) says the player is finished with them.
+
+### Music (phone steers the desktop's player)
+
+The desktop plays its own music folder and the phone acts as the remote; paths
+are relative to that folder and can't leave it.
+
+| request | fields | answer |
+|---|---|---|
+| `music_list` | `path` | `root` (the folder's name), `entries`: `{"name", "dir", "size"}`, folders first, tracks only |
+| `music_play` | `path` | a track plays on through its folder; a folder plays everything inside it |
+| `music_state` | — | the state below |
+| `music_cmd` | `action`, `value` | the state below, after the command |
+
+Actions: `toggle`, `next`, `previous`, `stop`, `position` (value: seconds),
+`volume` (value: 0–100, the player's own level, not the computer's). The state
+is `{"playing": false}`, or `playing`, `title`, `artist`, `album`, `paused`,
+`position`, `length` (seconds), `volume`, `index`, `count`; `"loading": true`
+while the player is starting. Starting direct play stops the music, and the
+other way round.
 
 ### Wake-on-LAN (desktop → phone)
 

@@ -558,7 +558,9 @@ async def main(root: Path):
             raise AssertionError(f"accepted {body}")
         except ProtoError as e:
             assert e.code == code, e
-    can_play, player = phoneplay.can_play, phoneplay.Player
+    can_play, player, browser = phoneplay.can_play, phoneplay.Player, phoneplay.open_in_browser
+    browsed = []
+    phoneplay.open_in_browser = lambda url: browsed.append(url) or bool(browsed) and "fail" not in url
     played = []
 
     class FakePlayer:
@@ -577,12 +579,13 @@ async def main(root: Path):
 
     phoneplay.can_play, phoneplay.Player = only_good, FakePlayer
     try:
+        res = await sb.request({"t": "play_url", "url": "https://kino.example/login"})
+        assert res["browser"] is True and browsed == ["https://kino.example/login"] and not played
         try:
-            await sb.request({"t": "play_url", "url": "https://kino.example/login"})
+            await sb.request({"t": "play_url", "url": "https://fail.example/"})
             raise AssertionError("played the unplayable")
         except ProtoError as e:
             assert e.code == "not_playable", e
-        assert not played
         await sb.request({"t": "play_url", "url": "https://good.example/v"})
         assert played[-1].targets == ["https://good.example/v"] and played[-1].fullscreen
         ended = []
@@ -600,7 +603,7 @@ async def main(root: Path):
             assert e.code == "denied", e
         A.cfg["phone_play"] = True
     finally:
-        phoneplay.can_play, phoneplay.Player = can_play, player
+        phoneplay.can_play, phoneplay.Player, phoneplay.open_in_browser = can_play, player, browser
     print("ok  direct play")
 
     # --- reconnect after drop
