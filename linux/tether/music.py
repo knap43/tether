@@ -1,15 +1,13 @@
 """The computer's music folder, with the phone as its remote: mpv plays here, and the phone browses and steers."""
 
-import asyncio
-import json
 import logging
 import os
 import re
-import signal
 import subprocess
 from pathlib import Path
 
 from .errors import ProtoError
+from .mpvcontrol import MpvControl
 from .phonescreen import MPRIS_SCRIPTS
 
 log = logging.getLogger("tether.music")
@@ -17,7 +15,6 @@ log = logging.getLogger("tether.music")
 AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".m4b", ".aac", ".wav", ".wv", ".ape", ".aiff",
               ".aif", ".alac", ".wma", ".mka", ".mpc", ".dsf", ".dff", ".tta"}
 MAX_QUEUE = 5000
-IPC_TIMEOUT = 2
 
 
 def music_dir(configured: str | None = None) -> Path:
@@ -95,12 +92,11 @@ def make_queue(root: Path, path) -> tuple[list[str], int]:
     return tracks[:MAX_QUEUE], 0
 
 
-class MusicPlayer:
-    """A windowless mpv, steered over its IPC socket."""
+class MusicPlayer(MpvControl):
+    """A windowless mpv."""
 
     def __init__(self, tracks: list[str], start: int, volume: float = 100):
-        runtime = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
-        self.socket = os.path.join(runtime, f"tether-music-{os.getpid()}.sock")
+        super().__init__("music")
         cmd = ["mpv", "--no-config", "--no-terminal", "--no-video", "--force-window=no", "--gapless-audio=weak",
                f"--input-ipc-server={self.socket}", f"--playlist-start={start}", f"--volume={volume}"]
         mpris = next((p for p in MPRIS_SCRIPTS if os.path.exists(p)), None)
@@ -108,71 +104,3 @@ class MusicPlayer:
             cmd.append(f"--script={mpris}")
         self.proc = subprocess.Popen([*cmd, "--", *tracks], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL, start_new_session=True)
-
-    def alive(self) -> bool:
-        return self.proc.poll() is None
-
-    async def _ipc(self, commands: list[list]) -> list:
-        """Answers in order: each command's data, or None where it failed (a track without an album, say)."""
-        reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(self.socket), IPC_TIMEOUT)
-        try:
-            for i, c in enumerate(commands):
-                writer.write(json.dumps({"command": c, "request_id": i + 1}).encode() + b"\n")
-            await writer.drain()
-            answers: dict[int, object] = {}
-            while len(answers) < len(commands):
-                line = await asyncio.wait_for(reader.readline(), IPC_TIMEOUT)
-                if not line:
-                    raise ConnectionError("mpv closed its socket")
-                msg = json.loads(line)
-                if "request_id" in msg:
-                    answers[msg["request_id"]] = msg.get("data") if msg.get("error") == "success" else None
-            return [answers.get(i + 1) for i in range(len(commands))]
-        finally:
-            writer.close()
-
-    async def state(self) -> dict:
-        if not self.alive():
-            return {"playing": False}
-        names = ["media-title", "metadata/by-key/artist", "metadata/by-key/album", "time-pos", "duration", "pause",
-                 "volume", "playlist-pos", "playlist-count"]
-        try:
-            title, artist, album, pos, length, paused, volume, index, count = await self._ipc(
-                [["get_property", n] for n in names])
-        except (OSError, ConnectionError, asyncio.TimeoutError, ValueError):
-            return {"playing": True, "loading": True}
-        return {"playing": True, "title": title, "artist": artist, "album": album, "position": pos, "length": length,
-                "paused": bool(paused), "volume": volume, "index": index, "count": count}
-
-    async def command(self, action, value=None) -> None:
-        if action == "toggle":
-            cmd = ["cycle", "pause"]
-        elif action == "next":
-            cmd = ["playlist-next"]
-        elif action == "previous":  # as players do: back to the start first, then the track before
-            pos = (await self._ipc([["get_property", "time-pos"]]))[0]
-            cmd = ["seek", 0, "absolute"] if isinstance(pos, (int, float)) and pos > 3 else ["playlist-prev"]
-        elif action in ("position", "volume"):
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ProtoError("bad_request")
-            cmd = (["seek", max(0, value), "absolute"] if action == "position"
-                   else ["set_property", "volume", min(100, max(0, value))])
-        else:
-            raise ProtoError("bad_request")
-        try:
-            await self._ipc([cmd])
-        except (OSError, ConnectionError, asyncio.TimeoutError, ValueError):
-            raise ProtoError("io", "the player isn't answering")
-
-    async def stop(self) -> None:
-        if self.alive():
-            try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        while self.alive():
-            await asyncio.sleep(0.05)
-        try:
-            os.unlink(self.socket)
-        except OSError:
-            pass

@@ -6,11 +6,11 @@ import logging
 import os
 import secrets
 import shutil
-import signal
 import subprocess
 from urllib.parse import quote, urlsplit
 
 from .errors import ProtoError
+from .mpvcontrol import MpvControl
 from .phonescreen import display_env, mpv_look, proxy_env
 
 log = logging.getLogger("tether.play")
@@ -72,25 +72,23 @@ def open_in_browser(url: str) -> bool:
     return True
 
 
-class Player:
+class Player(MpvControl):
     """An mpv window: fullscreen for video, small for music."""
 
     def __init__(self, targets: list[str], title: str, fullscreen: bool = True):
+        super().__init__("player")
         self.log_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", f"tether-player-{os.getpid()}.log")
         # The window waits for the first frame: a link takes many seconds to open, and a black screen says nothing.
         cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes", "--keep-open=no",
                f"--ytdl-format={YTDL_FORMAT}", f"--ytdl-raw-options-append=extractor-args={YTDL_CLIENTS}",
-               "--ytdl-raw-options-append=no-playlist=", f"--log-file={self.log_path}", "--", *targets]
+               "--ytdl-raw-options-append=no-playlist=", f"--log-file={self.log_path}",
+               f"--input-ipc-server={self.socket}", "--", *targets]
         self.proc = subprocess.Popen(cmd, env={**display_env(), **proxy_env()}, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
     @property
     def returncode(self):
         return self.proc.returncode
-
-    async def wait_exit(self) -> None:
-        while self.proc.poll() is None:
-            await asyncio.sleep(0.2)
 
     def problems(self) -> list[str]:
         """What the player complained of, for the log: it has no terminal to say so on."""
@@ -105,14 +103,6 @@ class Player:
             os.unlink(self.log_path)
         except OSError:
             pass
-
-    async def stop(self) -> None:
-        if self.proc.poll() is None:
-            try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        await self.wait_exit()
 
 
 class FileServer:

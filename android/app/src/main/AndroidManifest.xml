@@ -115,6 +115,15 @@
             android:launchMode="singleTop" />
 
         <activity
+            android:name=".app.NowPlayingActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <receiver
+            android:name=".app.PlaybackReceiver"
+            android:exported="false" />
+
+        <activity
             android:name=".app.RemoteActivity"
             android:exported="false"
             android:launchMode="singleTop" />

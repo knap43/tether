@@ -585,6 +585,7 @@ async def main(root: Path):
 
         def __init__(self, targets, title, fullscreen=True):
             self.targets, self.fullscreen, self.ended = targets, fullscreen, asyncio.Event()
+            self.commands = []
             played.append(self)
 
         async def wait_exit(self):
@@ -592,6 +593,15 @@ async def main(root: Path):
 
         async def stop(self):
             self.ended.set()
+
+        def alive(self):
+            return not self.ended.is_set()
+
+        async def state(self):
+            return {"playing": self.alive(), "title": "Film", "commands": self.commands}
+
+        async def command(self, action, value=None):
+            self.commands.append(action)
 
     async def only_good(url):
         return "good" in url
@@ -614,6 +624,21 @@ async def main(root: Path):
         assert not played[-1].fullscreen and played[-1].targets[0].endswith("/1/song.flac")
         played[-1].ended.set()  # the user closes it
         await until(lambda: ended and A.player is None, what="phone told the files are done")
+
+        # A shared video answers the phone's controls, and the phone hears when it starts and ends.
+        told = []
+        B._h_play_state = lambda s, msg: told.append(msg["on"]) or asyncio.sleep(0)
+        A.media.has_wpctl = False  # the volume in the state is the player's here
+        await sb.request({"t": "play_url", "url": "https://good.example/v"})
+        await until(lambda: told == [True], what="told it's playing")
+        assert (await sb.request({"t": "music_state"}))["title"] == "Film"
+        res = await sb.request({"t": "music_cmd", "action": "toggle"})
+        assert res["commands"] == ["toggle"], res
+        res = await sb.request({"t": "music_cmd", "action": "stop"})
+        assert res["playing"] is False and A.player is None
+        await until(lambda: told == [True, False], what="told it stopped")
+        A.media.has_wpctl = bool(shutil.which("wpctl"))
+
         A.cfg["phone_play"] = False
         try:
             await sb.request({"t": "play_url", "url": "https://good.example/v"})

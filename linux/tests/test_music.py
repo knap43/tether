@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tether import music  # noqa: E402
+from tether import music, phoneplay  # noqa: E402
 from tether.errors import ProtoError  # noqa: E402
 
 
@@ -118,6 +118,38 @@ async def test_player(folder: Path):
     print("ok  music player")
 
 
+async def test_video_player(folder: Path):
+    """A shared video answers the same controls; `stop` closes it."""
+    if not (shutil.which("mpv") and shutil.which("ffmpeg")):
+        return
+    video = folder / "film.mkv"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x64:r=5:d=30",
+                    "-metadata", "title=Film", str(video)], check=True)
+    display_env, real_popen = phoneplay.display_env, phoneplay.subprocess.Popen
+    phoneplay.display_env = dict
+    phoneplay.subprocess.Popen = lambda cmd, **k: real_popen([cmd[0], "--vo=null", "--ao=null", *cmd[1:]], **k)
+    try:
+        player = phoneplay.Player([str(video)], "phone")
+    finally:
+        phoneplay.display_env, phoneplay.subprocess.Popen = display_env, real_popen
+    try:
+        async def started():
+            s = await player.state()
+            return s if s.get("position") is not None else None
+
+        s = await until(started, "the video")
+        assert s["title"] == "Film" and s["length"] > 29 and not s["paused"], s
+        await player.command("toggle")
+        assert (await player.state())["paused"]
+        await player.command("toggle")
+        await player.command("position", 20)
+        await until(lambda: _past(player, 19), "the seek")
+    finally:
+        await player.stop()
+    assert not player.alive() and not Path(player.socket).exists()
+    print("ok  video player")
+
+
 async def _past(player, seconds):
     return ((await player.state()).get("position") or 0) > seconds
 
@@ -134,3 +166,4 @@ if __name__ == "__main__":
         outside.mkdir()
         test_folder(root, outside)
         asyncio.run(test_player(outside))
+        asyncio.run(test_video_player(outside))

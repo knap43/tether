@@ -215,6 +215,7 @@ class Node:
         self.screen_sink = phonescreen.ViewerSink
         self.player = None  # what the phone asked us to play: (Player, FileServer or None, session)
         self.music = None  # the MusicPlayer the phone is steering
+        self.play_peer = None  # the phone told about what's playing
         self.remote = None  # (RemoteInput, session) while a phone is using the mouse and keyboard
         self.remote_input = remoteinput.RemoteInput
         self.tasks: set[asyncio.Task] = set()
@@ -1091,6 +1092,8 @@ class Node:
             ifs = []
         targets = [{k: i[k] for k in ("mac", "broadcast", "ip", "ifname", "wired")} for i in ifs]
         await s.channel.send({"t": "host_info", "wol": targets})
+        if s.peer_id == self.play_peer and self._now_playing():  # back after a dropped connection
+            await s.channel.send({"t": "play_state", "on": True})
 
     # -- media (the phone controls players here) ---------------------------------------
 
@@ -1368,6 +1371,8 @@ class Node:
         await self._stop_music()
         player = phoneplay.Player(targets, title, fullscreen)
         self.player = (player, server, s)
+        self.play_peer = s.peer_id
+        await self._announce_playing()
         self.player_watch = asyncio.ensure_future(self._watch_player(player))
 
     async def _watch_player(self, player) -> None:
@@ -1390,6 +1395,7 @@ class Node:
             await server.stop()
             if not s.channel.closed.is_set():
                 await s.channel.send({"t": "play_end"})
+        await self._announce_playing()
 
     # -- the computer's music, with the phone as the remote -----------------------------------
 
@@ -1408,6 +1414,9 @@ class Node:
         await self._stop_player()
         await self._stop_music()
         self.music = music.MusicPlayer(tracks, start)
+        self.play_peer = s.peer_id
+        await self._announce_playing()
+        self.music_watch = asyncio.ensure_future(self._watch_music(self.music))
         log.info("%s: playing music, %d tracks", s.name, len(tracks))
         await s.channel.reply(msg)
 
@@ -1419,17 +1428,19 @@ class Node:
         action = msg.get("action")
         if action == "stop":
             await self._stop_music()
+            await self._stop_player()
         elif action == "volume" and self.media.has_wpctl:  # the computer's own volume, not a second one
             value = msg.get("value")
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ProtoError("bad_request")
             await self.set_phone_audio_volume(value / 100, origin=s)
-        elif self.music and self.music.alive():
-            await self.music.command(action, msg.get("value"))
+        elif self._now_playing():
+            await self._now_playing().command(action, msg.get("value"))
         await s.channel.reply(msg, **await self._music_state())
 
     async def _music_state(self) -> dict:
-        state = await self.music.state() if self.music else {"playing": False}
+        playing = self._now_playing()
+        state = await playing.state() if playing else {"playing": False}
         if state.get("playing") and self.media.has_wpctl:
             state["volume"] = round(await self._audio_volume() * 100)
         return state
@@ -1438,6 +1449,28 @@ class Node:
         if self.music:
             player, self.music = self.music, None
             await player.stop()
+            await self._announce_playing()
+
+    async def _watch_music(self, player) -> None:
+        await player.wait_exit()  # the queue ran out
+        if self.music is player:
+            await self._stop_music()
+
+    def _now_playing(self):
+        """What the phone's controls act on: music, or a video or file it shared."""
+        if self.music and self.music.alive():
+            return self.music
+        if self.player and self.player[0].alive():
+            return self.player[0]
+        return None
+
+    async def _announce_playing(self) -> None:
+        s = self.sessions.get(self.play_peer)
+        if s and not s.channel.closed.is_set():
+            try:
+                await s.channel.send({"t": "play_state", "on": self._now_playing() is not None})
+            except ConnectionError:
+                pass
 
     # -- the phone as mouse and keyboard ------------------------------------------------------
 

@@ -76,6 +76,7 @@ data class MusicState(
     val position: Double,
     val length: Double,
     val volume: Double,
+    val count: Int,
 )
 
 /** A folder of the computer's music; folders first, then tracks. */
@@ -114,6 +115,7 @@ private fun parseMusicState(m: JsonObject): MusicState {
         position = number("position") ?: 0.0,
         length = number("length") ?: 0.0,
         volume = number("volume") ?: 100.0,
+        count = number("count")?.toInt() ?: 1,
     )
 }
 

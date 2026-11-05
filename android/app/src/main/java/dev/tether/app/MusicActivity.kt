@@ -18,18 +18,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.R as M
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.slider.LabelFormatter
-import com.google.android.material.slider.Slider
 import dev.tether.R
 import dev.tether.core.MusicEntry
-import dev.tether.core.MusicState
 import dev.tether.core.Node
 import dev.tether.core.RemoteError
-import dev.tether.core.musicCommand
 import dev.tether.core.musicList
 import dev.tether.core.musicPlay
-import dev.tether.core.musicState
 import java.io.IOException
 
 /** The computer's Music folder: browse it here, and it plays there. */
@@ -40,29 +34,15 @@ class MusicActivity : AppCompatActivity() {
     private lateinit var ui: Ui
     private lateinit var list: RecyclerView
     private lateinit var message: TextView
-    private lateinit var playerCard: View
-    private lateinit var trackTitle: TextView
-    private lateinit var trackArtist: TextView
-    private lateinit var seek: Slider
-    private lateinit var volume: Slider
-    private lateinit var playPause: MaterialButton
+    private lateinit var controls: PlayerControls
 
     private val main = Handler(Looper.getMainLooper())
     private val adapter = Adapter()
     private var entries: List<MusicEntry> = emptyList()
     private var path = "/"
-    private var seeking = false
-    private var settingVolume = false
 
     private val back = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = load(path.trimEnd('/').substringBeforeLast('/', "").ifEmpty { "/" })
-    }
-
-    private val poll = object : Runnable {
-        override fun run() {
-            request({ node.musicState(peer) }, quiet = true) { show(it) }
-            main.postDelayed(this, POLL_MS)
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,100 +74,23 @@ class MusicActivity : AppCompatActivity() {
             clipToPadding = false
         }
         content.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        buildPlayer(content)
+        controls = PlayerControls(this, ui, node, peer, content)
         load(path)
     }
 
     override fun onResume() {
         super.onResume()
-        main.post(poll)
+        if (::controls.isInitialized) controls.start()
     }
 
     override fun onPause() {
-        main.removeCallbacks(poll)
+        if (::controls.isInitialized) controls.stop()
         super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(STATE_PATH, path)
-    }
-
-    private fun buildPlayer(content: LinearLayout) {
-        val card = ui.card(content, padding = 12)
-        playerCard = card.parent as View
-        playerCard.visibility = View.GONE
-        trackTitle = ui.title("")
-        trackArtist = ui.text("", lines = 1)
-        card.addView(trackTitle)
-        card.addView(trackArtist)
-        seek = slider().also {
-            it.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-                override fun onStartTrackingTouch(slider: Slider) {
-                    seeking = true
-                }
-
-                override fun onStopTrackingTouch(slider: Slider) {
-                    seeking = false
-                    command("position", slider.value.toDouble())
-                }
-            })
-        }
-        card.addView(seek)
-        playPause = ui.iconButton(R.drawable.ic_pause, "Pause", R.attr.tetherFilledIconButton) { command("toggle") }
-        card.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                addView(ui.iconButton(R.drawable.ic_close, "Stop") { command("stop") })
-                addView(ui.iconButton(R.drawable.ic_skip_previous, "Previous") { command("previous") })
-                addView(playPause)
-                addView(ui.iconButton(R.drawable.ic_skip_next, "Next") { command("next") })
-            },
-        )
-        volume = slider().also {
-            it.valueTo = 100f
-            it.stepSize = 1f
-            it.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-                override fun onStartTrackingTouch(slider: Slider) {
-                    settingVolume = true
-                }
-
-                override fun onStopTrackingTouch(slider: Slider) {
-                    settingVolume = false
-                    command("volume", slider.value.toDouble())
-                }
-            })
-        }
-        card.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(ui.icon(R.drawable.ic_volume))
-                addView(volume, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            },
-        )
-    }
-
-    private fun slider() = Slider(this).apply {
-        valueFrom = 0f
-        valueTo = 1f
-        labelBehavior = LabelFormatter.LABEL_GONE
-    }
-
-    private fun show(s: MusicState) {
-        playerCard.visibility = if (s.playing) View.VISIBLE else View.GONE
-        if (!s.playing) return
-        trackTitle.text = s.title ?: "Starting…"
-        trackArtist.text = s.artist.orEmpty()
-        trackArtist.visibility = if (s.artist.isNullOrEmpty()) View.GONE else View.VISIBLE
-        playPause.setIconResource(if (s.paused) R.drawable.ic_play else R.drawable.ic_pause)
-        playPause.contentDescription = if (s.paused) "Play" else "Pause"
-        if (!seeking) {
-            seek.valueTo = maxOf(s.length.toFloat(), 1f)
-            seek.value = s.position.toFloat().coerceIn(0f, seek.valueTo)
-        }
-        if (!settingVolume) volume.value = Math.round(s.volume).toFloat().coerceIn(0f, 100f)
     }
 
     private fun load(target: String) {
@@ -205,22 +108,17 @@ class MusicActivity : AppCompatActivity() {
 
     private fun child(name: String) = path.trimEnd('/') + "/" + name
 
-    private fun play(target: String) = request({ node.musicPlay(peer, target) }) { command(null) }
+    private fun play(target: String) = request({ node.musicPlay(peer, target) }) { controls.refresh() }
 
-    /** Sends an action (or just asks, when null) and shows the state that comes back. */
-    private fun command(action: String?, value: Double? = null) = request({
-        if (action == null) node.musicState(peer) else node.musicCommand(peer, action, value)
-    }) { show(it) }
-
-    private fun <T> request(work: () -> T, quiet: Boolean = false, done: (T) -> Unit) {
+    private fun <T> request(work: () -> T, done: (T) -> Unit) {
         node.pool.execute {
             try {
                 val result = work()
                 main.post { if (!isDestroyed) done(result) }
             } catch (e: RemoteError) {
-                if (!quiet) main.post { fail(e.code) }
+                main.post { fail(e.code) }
             } catch (e: IOException) {
-                if (!quiet) main.post { fail("io") }
+                main.post { fail("io") }
             }
         }
     }
@@ -286,6 +184,5 @@ class MusicActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PEER = "peer"
         private const val STATE_PATH = "path"
-        private const val POLL_MS = 1000L
     }
 }

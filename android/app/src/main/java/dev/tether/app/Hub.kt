@@ -186,6 +186,7 @@ class AndroidPlatform(private val context: Context) : Platform {
         Hub.dispatch(event)
         when (event) {
             is NodeEvent.StatusChanged -> {
+                PlaybackNotifier.connectionChanged(context)
                 context.contentResolver.notifyChange(DocumentsContract.buildRootsUri(PcDocumentsProvider.AUTHORITY), null)
                 TetherService.refreshNotification(context)
                 // A computer that went away (or to sleep) can't be playing anything for us.
@@ -213,6 +214,7 @@ class AndroidPlatform(private val context: Context) : Platform {
             is NodeEvent.TransferProgress -> TransferNotifier.update(context, event.info)
             is NodeEvent.AudioControl -> PhoneAudio.onControl(context, event)
             is NodeEvent.ScreenControl -> PhoneScreen.onControl(context, event)
+            is NodeEvent.PlayState -> PlaybackNotifier.update(context, event)
             is NodeEvent.AudioVolume -> PhoneAudio.onVolume(context, event)
             is NodeEvent.Introduced -> Notifications.post(
                 context, "${event.byName} introduced ${event.name}",

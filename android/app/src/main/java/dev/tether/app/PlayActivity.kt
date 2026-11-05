@@ -85,13 +85,17 @@ class PlayActivity : AppCompatActivity() {
             when {
                 files.isNotEmpty() -> {
                     node.playFiles(peer, files)
+                    showControls(peer)
                     finishWith("Playing on $name")
                 }
                 node.playUrl(peer, url!!) -> runOnUiThread { // a browser needs a click to start playing
                     startActivity(Intent(this, RemoteActivity::class.java).putExtra(RemoteActivity.EXTRA_PEER, peer))
                     finishWith("Opened in the browser on $name")
                 }
-                else -> finishWith("Opening on $name; a video can take a few seconds to start", long = true)
+                else -> {
+                    showControls(peer)
+                    finishWith("Opening on $name; a video can take a few seconds to start", long = true)
+                }
             }
         } catch (e: RemoteError) {
             when (e.code) {
@@ -103,6 +107,10 @@ class PlayActivity : AppCompatActivity() {
         } catch (e: IOException) {
             finishWith("Lost the connection to $name")
         }
+    }
+
+    private fun showControls(peer: String) = runOnUiThread {
+        startActivity(Intent(this, NowPlayingActivity::class.java).putExtra(NowPlayingActivity.EXTRA_PEER, peer))
     }
 
     private fun finishWith(msg: String, long: Boolean = false) = runOnUiThread {

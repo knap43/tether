@@ -70,6 +70,9 @@ sealed class NodeEvent {
     /** A computer asks us to start or stop streaming this phone's screen to it. */
     data class ScreenControl(val from: String, val fromName: String, val on: Boolean) : NodeEvent()
 
+    /** The computer started or stopped playing something this phone asked for. */
+    data class PlayState(val from: String, val fromName: String, val on: Boolean) : NodeEvent()
+
     /** The volume (0–1) the computer plays this phone's audio at changed. */
     data class AudioVolume(val from: String, val volume: Double) : NodeEvent()
 }
@@ -411,6 +414,7 @@ class Node(
                     "fs_read" -> onFsRead(ch, msg)
                     "play_read" -> onPlayRead(ch, msg)
                     "play_end" -> releasePlayable()
+                    "play_state" -> platform.onEvent(NodeEvent.PlayState(s.peerId, s.name, msg.bool("on") == true))
                     "fs_write" -> onFsWrite(ch, msg, inc!!)
                     "fs_mkdir" -> {
                         shares.mkdir(msg.str("path"))

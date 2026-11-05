@@ -284,10 +284,13 @@ desktop sends `{"t": "play_read", "req": n, "id", "offset", "length"}`, answered
 like `fs_read` with `stream`, `size` and `length`, so seeking works.
 `{"t": "play_end"}` (desktop → phone) says the player is finished with them.
 
-### Music (phone steers the desktop's player)
+### Music and playback control (phone steers the desktop's player)
 
 The desktop plays its own music folder and the phone acts as the remote; paths
-are relative to that folder and can't leave it.
+are relative to that folder and can't leave it. `music_state` and `music_cmd`
+also control whatever direct play started, and `stop` ends either.
+`{"t": "play_state", "on": bool}` (desktop → phone) says playback the phone asked
+for started or ended, and is repeated when it reconnects while still playing.
 
 | request | fields | answer |
 |---|---|---|
