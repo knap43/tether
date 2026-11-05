@@ -297,11 +297,20 @@ are relative to that folder and can't leave it.
 | `music_cmd` | `action`, `value` | the state below, after the command |
 
 Actions: `toggle`, `next`, `previous`, `stop`, `position` (value: seconds),
-`volume` (value: 0–100, the player's own level, not the computer's). The state
+`volume` (value: 0–100, the computer's output volume). The state
 is `{"playing": false}`, or `playing`, `title`, `artist`, `album`, `paused`,
 `position`, `length` (seconds), `volume`, `index`, `count`; `"loading": true`
 while the player is starting. Starting direct play stops the music, and the
 other way round.
+
+### Remote input (phone → desktop)
+
+`{"t": "remote_open", "req": n}` asks to use the mouse and keyboard, answered
+`ok`, `denied` (off by default on the desktop) or `unsupported`. Then, with no
+answers, as they may come many times a second, `{"t": "remote", "kind": …}`:
+`move` (`dx`, `dy`), `click` (`button`: `left` or `right`), `scroll` (`steps`), or
+`key` (`key`: one of `space`, `f`, `m`, `escape`, `return`, `left`, `up`, `right`,
+`down`, `f5`; there is no way to type anything else). `{"t": "remote_close"}` ends it.
 
 ### Wake-on-LAN (desktop → phone)
 

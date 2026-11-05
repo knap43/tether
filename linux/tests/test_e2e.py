@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import aiohttp  # noqa: E402
 
+from tether import media as media_module  # noqa: E402
 from tether import phoneplay  # noqa: E402
 from tether.config import Paths  # noqa: E402
 from tether.errors import ProtoError  # noqa: E402
@@ -67,6 +68,19 @@ async def pair(a: Node, b: Node, b_port: int):
     await b.confirm_pairing(a.identity.id, True)
     await until(lambda: a.is_connected(b.identity.id) and b.is_connected(a.identity.id), what="trusted session")
     assert b.identity.id in a.peers and a.identity.id in b.peers
+
+
+# Whatever a test does, this machine's real output volume stays out of it.
+_real_run = media_module._run
+
+
+async def _run_without_touching_volume(*cmd):
+    if cmd[:2] in (("wpctl", "set-volume"), ("wpctl", "set-mute")):
+        return 0, ""
+    return await _real_run(*cmd)
+
+
+media_module._run = _run_without_touching_volume
 
 
 async def main(root: Path):
@@ -564,6 +578,11 @@ async def main(root: Path):
     played = []
 
     class FakePlayer:
+        returncode = 0
+
+        def forget_log(self):
+            pass
+
         def __init__(self, targets, title, fullscreen=True):
             self.targets, self.fullscreen, self.ended = targets, fullscreen, asyncio.Event()
             played.append(self)
@@ -605,6 +624,52 @@ async def main(root: Path):
     finally:
         phoneplay.can_play, phoneplay.Player, phoneplay.open_in_browser = can_play, player, browser
     print("ok  direct play")
+
+    # --- remote input: off by default, and only what the protocol allows reaches the desktop
+    class FakeInput:
+        made = []
+
+        def __init__(self):
+            self.events, self.closed = [], False
+            FakeInput.made.append(self)
+
+        def move(self, dx, dy):
+            self.events.append(("move", dx, dy))
+
+        def click(self, button):
+            self.events.append(("click", button))
+
+        def scroll(self, steps):
+            self.events.append(("scroll", steps))
+
+        def key(self, name):
+            self.events.append(("key", name))
+
+        def close(self):
+            self.closed = True
+
+    A.remote_input = FakeInput
+    assert A.cfg["phone_remote"] is False
+    try:
+        await sb.request({"t": "remote_open"})
+        raise AssertionError("remote input allowed by default")
+    except ProtoError as e:
+        assert e.code == "denied", e
+    await sb.send({"t": "remote", "kind": "key", "key": "space"})  # without opening: nothing
+    A.cfg["phone_remote"] = True
+    await sb.request({"t": "remote_open"})
+    for bad in ({"kind": "key", "key": "super"}, {"kind": "key", "key": 7}, {"kind": "click", "button": "evil"},
+                {"kind": "move", "dx": "x", "dy": 1}, {"kind": "scroll", "steps": True}, {"kind": "reboot"}):
+        await sb.send({"t": "remote", **bad})
+    for good in ({"kind": "move", "dx": 5, "dy": -9000}, {"kind": "click", "button": "right"},
+                 {"kind": "scroll", "steps": 2}, {"kind": "key", "key": "space"}):
+        await sb.send({"t": "remote", **good})
+    await until(lambda: ("key", "space") in FakeInput.made[0].events, what="remote events")
+    assert FakeInput.made[0].events == [("move", 5.0, -2000.0), ("click", "right"), ("scroll", 2), ("key", "space")]
+    await sb.send({"t": "remote_close"})
+    await until(lambda: FakeInput.made[0].closed and A.remote is None, what="remote closed")
+    A.cfg["phone_remote"] = False
+    print("ok  remote input")
 
     # --- reconnect after drop
     sa.channel.close()

@@ -1,5 +1,6 @@
 """Shows the phone's screen (a raw H.264 stream) in a viewer window."""
 
+import ast
 import asyncio
 import fcntl
 import logging
@@ -70,6 +71,36 @@ def display_env() -> dict[str, str]:
             env.setdefault(key, value)
     if not env.get("WAYLAND_DISPLAY") and not env.get("DISPLAY"):
         raise ProtoError("unsupported", "no one is logged in to a desktop on the computer")
+    return env
+
+
+def proxy_env() -> dict[str, str]:
+    """The desktop's proxy (GNOME's settings), which a service doesn't inherit from a login shell.
+
+    Where a site can only be reached through one, yt-dlp and the player need it too."""
+    if any(os.environ.get(k) for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY")):
+        return {}
+
+    def setting(schema: str, key: str):
+        out = subprocess.run(["gsettings", "get", schema, key], capture_output=True, text=True, timeout=3)
+        return ast.literal_eval(out.stdout.strip()) if out.returncode == 0 else None
+
+    env: dict[str, str] = {}
+    try:
+        if setting("org.gnome.system.proxy", "mode") != "manual":
+            return {}
+        for scheme, url_scheme, names in (("http", "http", ("http_proxy", "HTTP_PROXY")),
+                                          ("https", "http", ("https_proxy", "HTTPS_PROXY")),
+                                          ("socks", "socks5", ("all_proxy", "ALL_PROXY"))):
+            host, port = setting(f"org.gnome.system.proxy.{scheme}", "host"), setting(f"org.gnome.system.proxy.{scheme}", "port")
+            if host and port:
+                env.update({n: f"{url_scheme}://{host}:{port}" for n in names})
+        if env:  # always spare our own file server
+            ignore = setting("org.gnome.system.proxy", "ignore-hosts") or []
+            local = ",".join(dict.fromkeys([*ignore, "localhost", "127.0.0.1"]))
+            env.update({"no_proxy": local, "NO_PROXY": local})
+    except (OSError, subprocess.SubprocessError, ValueError, SyntaxError):
+        return {}
     return env
 
 

@@ -43,8 +43,9 @@ class PlayActivity : AppCompatActivity() {
         setFinishOnTouchOutside(false)
         if (savedInstanceState != null) return
 
-        val uris = uris(intent)
-        val url = intent?.getStringExtra(Intent.EXTRA_TEXT)?.let { LINK.find(it)?.value }
+        val viewedLink = intent?.data?.takeIf { intent?.action == Intent.ACTION_VIEW && it.scheme != "content" }
+        val uris = if (viewedLink != null) emptyList() else uris(intent)
+        val url = viewedLink?.toString() ?: intent?.getStringExtra(Intent.EXTRA_TEXT)?.let { LINK.find(it)?.value }
         if (uris.isEmpty() && url == null) return finishWith("Nothing here that can be played")
         // The permission to read a shared file lasts only as long as this activity, so open them now.
         Thread {
@@ -86,7 +87,10 @@ class PlayActivity : AppCompatActivity() {
                     node.playFiles(peer, files)
                     finishWith("Playing on $name")
                 }
-                node.playUrl(peer, url!!) -> finishWith("Opened in the browser on $name")
+                node.playUrl(peer, url!!) -> runOnUiThread { // a browser needs a click to start playing
+                    startActivity(Intent(this, RemoteActivity::class.java).putExtra(RemoteActivity.EXTRA_PEER, peer))
+                    finishWith("Opened in the browser on $name")
+                }
                 else -> finishWith("Opening on $name; a video can take a few seconds to start", long = true)
             }
         } catch (e: RemoteError) {

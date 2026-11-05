@@ -13,7 +13,7 @@ import shutil
 import signal
 import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from . import bookmarks, clipboard, nautilus
 from .channel import CHUNK, Channel, StreamAborted
@@ -28,6 +28,7 @@ from .sleepwatch import SleepWatch
 from . import phoneaudio
 from . import music
 from . import phoneplay
+from . import remoteinput
 from . import phonescreen
 from .transfers import Transfer, Transfers
 from .sync import BaseState, FolderIndex, now_ms, plan, remove_empty_parents, safe_rel, tmp_path_for
@@ -214,6 +215,8 @@ class Node:
         self.screen_sink = phonescreen.ViewerSink
         self.player = None  # what the phone asked us to play: (Player, FileServer or None, session)
         self.music = None  # the MusicPlayer the phone is steering
+        self.remote = None  # (RemoteInput, session) while a phone is using the mouse and keyboard
+        self.remote_input = remoteinput.RemoteInput
         self.tasks: set[asyncio.Task] = set()
         self.sleepwatch = SleepWatch(self.before_sleep, self.after_wake)
         self.asleep: set[str] = set()  # peers that told us they went to sleep, until they're back
@@ -1125,6 +1128,8 @@ class Node:
             raise ProtoError("denied", "media control is off")
         player = msg.get("player") if isinstance(msg.get("player"), str) else None
         try:
+            if msg.get("action") in ("volume", "mute"):
+                log.info("output volume changed by %s: %s %s", s.name, msg.get("action"), msg.get("value"))
             state = await self.media.command(player, str(msg.get("action")), msg.get("value"))
         except (ValueError, TypeError) as e:
             raise ProtoError("unsupported", str(e)) from None
@@ -1330,9 +1335,11 @@ class Node:
         if not phoneplay.valid_url(url):
             raise ProtoError("bad_request")
         if await phoneplay.can_play(url):
+            log.info("%s: playing a link from %s", s.name, urlsplit(url).hostname)
             await self._start_player(s, [url], f"{s.name} – Tether")
             await s.channel.reply(msg)
         elif phoneplay.open_in_browser(url):
+            log.info("%s: opening a link from %s in the browser", s.name, urlsplit(url).hostname)
             await s.channel.reply(msg, browser=True)
         else:
             raise ProtoError("not_playable")
@@ -1365,6 +1372,11 @@ class Node:
 
     async def _watch_player(self, player) -> None:
         await player.wait_exit()
+        log.info("player ended with status %s", player.returncode)
+        if player.returncode:
+            for line in player.problems():
+                log.warning("player: %s", line)
+        player.forget_log()
         if self.player and self.player[0] is player:
             await self._stop_player()
 
@@ -1394,12 +1406,9 @@ class Node:
         self._check_play()
         tracks, start = await asyncio.to_thread(music.make_queue, self._music_root(), msg.get("path"))
         await self._stop_player()
-        volume = 100
-        if self.music and self.music.alive():  # keep the level chosen for the last queue
-            state = await self.music.state()
-            volume = state.get("volume") or 100
         await self._stop_music()
-        self.music = music.MusicPlayer(tracks, start, volume)
+        self.music = music.MusicPlayer(tracks, start)
+        log.info("%s: playing music, %d tracks", s.name, len(tracks))
         await s.channel.reply(msg)
 
     async def _h_music_state(self, s, msg):
@@ -1410,17 +1419,48 @@ class Node:
         action = msg.get("action")
         if action == "stop":
             await self._stop_music()
+        elif action == "volume" and self.media.has_wpctl:  # the computer's own volume, not a second one
+            value = msg.get("value")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ProtoError("bad_request")
+            await self.set_phone_audio_volume(value / 100, origin=s)
         elif self.music and self.music.alive():
             await self.music.command(action, msg.get("value"))
         await s.channel.reply(msg, **await self._music_state())
 
     async def _music_state(self) -> dict:
-        return await self.music.state() if self.music else {"playing": False}
+        state = await self.music.state() if self.music else {"playing": False}
+        if state.get("playing") and self.media.has_wpctl:
+            state["volume"] = round(await self._audio_volume() * 100)
+        return state
 
     async def _stop_music(self) -> None:
         if self.music:
             player, self.music = self.music, None
             await player.stop()
+
+    # -- the phone as mouse and keyboard ------------------------------------------------------
+
+    async def _h_remote_open(self, s, msg):
+        if not self.cfg["phone_remote"]:
+            raise ProtoError("denied", "using the mouse and keyboard from the phone is turned off")
+        self._close_remote()
+        self.remote = (await asyncio.to_thread(self.remote_input), s)
+        log.info("%s is using the mouse and keyboard", s.name)
+        await s.channel.reply(msg)
+
+    async def _h_remote(self, s, msg):
+        if self.remote and self.remote[1] is s and self.cfg["phone_remote"]:
+            remoteinput.apply(self.remote[0], msg)
+
+    async def _h_remote_close(self, s, msg):
+        if self.remote and self.remote[1] is s:
+            self._close_remote()
+
+    def _close_remote(self) -> None:
+        if self.remote:
+            self.remote[0].close()
+            self.remote = None
 
     async def _h_screen_state(self, s, msg):
         """The phone reports it stopped (or never started, e.g. the user declined)."""
@@ -1548,6 +1588,7 @@ class Node:
             "phone_screen_available": phonescreen.available(),
             "phone_play": self.cfg["phone_play"],
             "phone_play_available": phoneplay.available(),
+            "phone_remote": self.cfg["phone_remote"],
         }
 
 

@@ -11,7 +11,7 @@ import subprocess
 from urllib.parse import quote, urlsplit
 
 from .errors import ProtoError
-from .phonescreen import display_env, mpv_look
+from .phonescreen import display_env, mpv_look, proxy_env
 
 log = logging.getLogger("tether.play")
 
@@ -44,6 +44,7 @@ async def can_play(url: str) -> bool:
     proc = await asyncio.create_subprocess_exec(
         "yt-dlp", "--simulate", "--quiet", "--no-warnings", "--no-playlist", "--", url,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env={**os.environ, **proxy_env()},
     )
     try:
         return await asyncio.wait_for(proc.wait(), PROBE_TIMEOUT) == 0
@@ -58,7 +59,7 @@ def open_in_browser(url: str) -> bool:
     if not shutil.which("xdg-open"):
         return False
     try:
-        subprocess.Popen(["xdg-open", url], env=display_env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        subprocess.Popen(["xdg-open", url], env={**display_env(), **proxy_env()}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except (OSError, ProtoError):
         return False
@@ -69,16 +70,35 @@ class Player:
     """An mpv window: fullscreen for video, small for music."""
 
     def __init__(self, targets: list[str], title: str, fullscreen: bool = True):
+        self.log_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", f"tether-player-{os.getpid()}.log")
         # The window waits for the first frame: a link takes many seconds to open, and a black screen says nothing.
         cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes", "--keep-open=no",
                "--ytdl-format=bestvideo+bestaudio[audio_channels<=2]/bestvideo+bestaudio/best",
-               "--ytdl-raw-options-append=no-playlist=", "--", *targets]
-        self.proc = subprocess.Popen(cmd, env=display_env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL, start_new_session=True)
+               "--ytdl-raw-options-append=no-playlist=", f"--log-file={self.log_path}", "--", *targets]
+        self.proc = subprocess.Popen(cmd, env={**display_env(), **proxy_env()}, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+    @property
+    def returncode(self):
+        return self.proc.returncode
 
     async def wait_exit(self) -> None:
         while self.proc.poll() is None:
             await asyncio.sleep(0.2)
+
+    def problems(self) -> list[str]:
+        """What the player complained of, for the log: it has no terminal to say so on."""
+        try:
+            with open(self.log_path, errors="replace") as f:
+                return [line.strip()[:200] for line in f if "][e][" in line or "][f][" in line][-4:]
+        except OSError:
+            return []
+
+    def forget_log(self) -> None:
+        try:
+            os.unlink(self.log_path)
+        except OSError:
+            pass
 
     async def stop(self) -> None:
         if self.proc.poll() is None:

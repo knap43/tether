@@ -116,3 +116,29 @@ private fun parseMusicState(m: JsonObject): MusicState {
         volume = number("volume") ?: 100.0,
     )
 }
+
+/** Asks to use the computer's mouse and keyboard. RemoteError "denied" while it has that turned off. */
+fun Node.remoteOpen(peerId: String) {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    s.channel.request(jobj("t" to "remote_open"))
+}
+
+fun Node.remoteClose(peerId: String) {
+    session(peerId)?.channel?.trySend(jobj("t" to "remote_close"))
+}
+
+fun Node.remoteMove(peerId: String, dx: Float, dy: Float) {
+    session(peerId)?.channel?.trySend(jobj("t" to "remote", "kind" to "move", "dx" to dx.toDouble(), "dy" to dy.toDouble()))
+}
+
+fun Node.remoteClick(peerId: String, button: String) {
+    session(peerId)?.channel?.trySend(jobj("t" to "remote", "kind" to "click", "button" to button))
+}
+
+fun Node.remoteScroll(peerId: String, steps: Int) {
+    session(peerId)?.channel?.trySend(jobj("t" to "remote", "kind" to "scroll", "steps" to steps))
+}
+
+fun Node.remoteKey(peerId: String, key: String) {
+    session(peerId)?.channel?.trySend(jobj("t" to "remote", "kind" to "key", "key" to key))
+}

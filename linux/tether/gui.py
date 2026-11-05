@@ -352,6 +352,7 @@ class TetherWindow(Adw.ApplicationWindow):
                 "Start it from the phone, or with the screen button by the phone" if st.get("phone_screen_available", True)
                 else "Needs mpv or ffplay, neither of which is installed"
             )
+            self.remote_row.set_active(bool(st.get("phone_remote", False)))
             self.play_row.set_active(bool(st.get("phone_play", True)))
             self.play_row.set_subtitle(
                 "Links and files shared to “Play on computer”, and this computer's music, from the phone" if st.get("phone_play_available", True)
@@ -963,6 +964,11 @@ class TetherWindow(Adw.ApplicationWindow):
         self.play_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="phone_play", value=r.get_active()))
         media.add(self.play_row)
+        self.remote_row = Adw.SwitchRow(title="Let the phone use mouse and keyboard",
+                                        subtitle="Its Remote screen: a touchpad and the keys for playing things")
+        self.remote_row.connect("notify::active", lambda r, _p: self._updating or self.call(
+            "set", key="phone_remote", value=r.get_active()))
+        media.add(self.remote_row)
         page.add(media)
 
         self.wol = ListGroup("Wake on LAN",

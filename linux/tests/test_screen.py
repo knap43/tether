@@ -61,6 +61,29 @@ def test_display_env():
     print("ok  display environment")
 
 
+def test_proxy_env():
+    run, environ = phonescreen.subprocess.run, phonescreen.os.environ
+    answers = {("org.gnome.system.proxy", "mode"): "'manual'", ("org.gnome.system.proxy.http", "host"): "'127.0.0.1'",
+               ("org.gnome.system.proxy.http", "port"): "10809", ("org.gnome.system.proxy.https", "host"): "'127.0.0.1'",
+               ("org.gnome.system.proxy.https", "port"): "10809", ("org.gnome.system.proxy.socks", "host"): "''",
+               ("org.gnome.system.proxy.socks", "port"): "0",
+               ("org.gnome.system.proxy", "ignore-hosts"): "['localhost', '::1']"}
+    phonescreen.subprocess.run = lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, stdout=answers[tuple(cmd[2:4])])
+    try:
+        phonescreen.os.environ = {}
+        env = phonescreen.proxy_env()
+        assert env["https_proxy"] == "http://127.0.0.1:10809" and env["HTTP_PROXY"] == "http://127.0.0.1:10809", env
+        assert "all_proxy" not in env and env["no_proxy"] == "localhost,::1,127.0.0.1", env
+        phonescreen.os.environ = {"https_proxy": "http://own:1"}  # one already set is left alone
+        assert phonescreen.proxy_env() == {}
+        phonescreen.os.environ = {}
+        answers[("org.gnome.system.proxy", "mode")] = "'none'"
+        assert phonescreen.proxy_env() == {}
+    finally:
+        phonescreen.subprocess.run, phonescreen.os.environ = run, environ
+    print("ok  proxy environment")
+
+
 async def test_sink():
     command, env = phonescreen.viewer_command, phonescreen.display_env
     phonescreen.display_env = lambda: None
@@ -168,4 +191,5 @@ if __name__ == "__main__":
     asyncio.run(test_file_server())
     test_viewer_command()
     test_display_env()
+    test_proxy_env()
     asyncio.run(test_sink())

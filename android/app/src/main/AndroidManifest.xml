@@ -115,6 +115,11 @@
             android:launchMode="singleTop" />
 
         <activity
+            android:name=".app.RemoteActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <activity
             android:name=".app.PlayActivity"
             android:exported="true"
             android:label="Play on computer"
@@ -137,6 +142,14 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+            <intent-filter android:label="Play on computer">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
             </intent-filter>
