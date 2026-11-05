@@ -210,6 +210,10 @@ class Ui(val ctx: Context) {
     /** Controls meant to be hit without looking: an icon button at the given size. */
     fun bigButton(b: MaterialButton, sizeDp: Int) = b.apply {
         iconSize = dp(sizeDp * 9 / 16)
+        cornerRadius = dp(sizeDp / 2)
+        iconPadding = 0
+        setPadding(0, 0, 0, 0)
+        iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
         insetTop = 0
         insetBottom = 0
         minimumWidth = 0
@@ -230,6 +234,7 @@ class Ui(val ctx: Context) {
         labelBehavior = LabelFormatter.LABEL_GONE
         trackHeight = dp(10)
         thumbRadius = dp(14)
+        isTickVisible = false
     }
 
     /** The speaker icon and a slider, on one line. */
