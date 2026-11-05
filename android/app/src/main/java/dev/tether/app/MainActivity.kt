@@ -267,6 +267,11 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             ui.chip("Phone audio", R.drawable.ic_volume) { PhoneAudio.start(this, p.id) }
                         },
+                        if (PhoneScreen.streamingTo == p.id) {
+                            ui.chip("Stop screen", R.drawable.ic_screen) { PhoneScreen.stop(this) }
+                        } else {
+                            ui.chip("Show screen", R.drawable.ic_screen) { PhoneScreen.start(this, p.id) }
+                        },
                     ),
                 )
                 if (PhoneAudio.streamingTo == p.id) card.addView(audioVolumeRow(p.id))

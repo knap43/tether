@@ -26,6 +26,7 @@ from .fsops import TMP_PREFIX, Shares
 from .media import Media
 from .sleepwatch import SleepWatch
 from . import phoneaudio
+from . import phonescreen
 from .transfers import Transfer, Transfers
 from .sync import BaseState, FolderIndex, now_ms, plan, remove_empty_parents, safe_rel, tmp_path_for
 
@@ -36,7 +37,7 @@ RECONNECT_INTERVAL = 30
 MAX_UNTRUSTED = 4
 INDEX_PART = 5000
 MAX_OUTPUT = 64 * 1024
-AUDIO_ASK_TIMEOUT = 90  # how long the phone has to accept a request to stream its audio
+AUDIO_ASK_TIMEOUT = 90  # how long the phone has to accept a request to stream its audio or screen
 DEFAULT_PORT = 47291
 MAX_INTRODUCED = 64
 
@@ -170,6 +171,8 @@ class Session:
         self.notifs: dict[str, int] = {}  # phone notification key -> desktop notification id
         self.audio = "off"  # phone audio playing here: off | starting | on
         self.audio_asked = 0.0
+        self.screen = "off"  # phone screen showing here: off | starting | on
+        self.screen_asked = 0.0
         self.intro_sent = False  # we sent intro_ok on this (untrusted) session
         self.intro_remote = False  # the peer sent intro_ok
 
@@ -205,6 +208,8 @@ class Node:
         self.audio_sink = phoneaudio.PacatSink
         self.audio_out = None  # the sink playing it
         self.audio_sent_volume: float | None = None  # last volume the streaming phone was told
+        self.screen_in = None  # (session, Incoming) of the phone screen stream showing here
+        self.screen_sink = phonescreen.ViewerSink
         self.tasks: set[asyncio.Task] = set()
         self.sleepwatch = SleepWatch(self.before_sleep, self.after_wake)
         self.asleep: set[str] = set()  # peers that told us they went to sleep, until they're back
@@ -1232,6 +1237,79 @@ class Node:
     async def _h_audio_volume(self, s, msg):
         await self.set_phone_audio_volume(msg.get("volume"), origin=s)
 
+    # -- phone screen (the phone streams its display to us) -----------------------------
+
+    def _screen_state(self, s: Session) -> str:
+        if s.screen == "starting" and time.monotonic() - s.screen_asked > AUDIO_ASK_TIMEOUT:
+            s.screen = "off"
+        return s.screen
+
+    async def set_phone_screen(self, peer_id: str, on: bool) -> None:
+        """Asks the phone to start or stop streaming its screen here."""
+        s = self.sessions.get(peer_id)
+        if not s or s.channel.closed.is_set():
+            raise ProtoError("not_found", "the phone isn't connected")
+        if on and not self.cfg["phone_screen"]:
+            raise ProtoError("denied", "showing the phone's screen is turned off in Settings")
+        if on and not phonescreen.available():
+            raise ProtoError("unsupported", "needs mpv or ffplay")
+        if not on and self.screen_in and self.screen_in[0] is s:
+            self.screen_in[1].abort()
+        await s.channel.send({"t": "screen_ctl", "on": on})
+        if on and s.screen == "off":
+            s.screen, s.screen_asked = "starting", time.monotonic()
+        elif not on:
+            s.screen = "off"
+        self.emit_status()
+
+    async def phone_screen_setting_changed(self) -> None:
+        if not self.cfg["phone_screen"] and self.screen_in:
+            s = self.screen_in[0]
+            self.screen_in[1].abort()
+            await s.channel.send({"t": "screen_ctl", "on": False})
+
+    async def _h_screen(self, s, msg):
+        inc = msg["_in"]
+        if not self.cfg["phone_screen"]:
+            raise ProtoError("denied", "showing the phone's screen is turned off")
+        if msg.get("codec") != "h264":
+            raise ProtoError("bad_request")
+        sink = self.screen_sink(f"{s.name} – Tether")
+        if self.screen_in:  # one phone at a time; the newest wins
+            old, old_in = self.screen_in
+            old_in.abort()
+            old.screen = "off"
+        self.screen_in = (s, inc)
+        watch = None
+        try:
+            await s.channel.reply(msg)
+            s.screen = "on"
+            self.emit_status()
+            watch = s.channel.spawn(self._watch_viewer(sink, inc))
+            async for chunk in inc.chunks():
+                sink.write(chunk)
+        except StreamAborted:
+            pass
+        finally:
+            if watch:
+                watch.cancel()
+            await sink.close()
+            if self.screen_in and self.screen_in[1] is inc:
+                self.screen_in = None
+                s.screen = "off"
+                self.emit_status()
+
+    async def _watch_viewer(self, sink, inc) -> None:
+        """Closing the viewer window stops the stream, and so the capture on the phone."""
+        await sink.wait_exit()
+        inc.abort()
+
+    async def _h_screen_state(self, s, msg):
+        """The phone reports it stopped (or never started, e.g. the user declined)."""
+        if not msg.get("on") and s.screen == "starting":
+            s.screen = "off"
+            self.emit_status()
+
     async def _h_audio_state(self, s, msg):
         """The phone reports it stopped (or never started, e.g. the user declined)."""
         if not msg.get("on") and s.audio == "starting":
@@ -1313,7 +1391,8 @@ class Node:
                             "dav_url": dav_root + quote(labels[pid]) + "/" if pid in labels else None,
                             "sidebar": pid in sidebar,
                             "battery": s.battery if s and self.is_connected(pid) else None,
-                            "audio": self._audio_state(s) if s and self.is_connected(pid) else "off"})
+                            "audio": self._audio_state(s) if s and self.is_connected(pid) else "off",
+                            "screen": self._screen_state(s) if s and self.is_connected(pid) else "off"})
         pending = [
             {"id": s.peer_id, "name": s.name, "sas": s.hs.sas, "initiator": s.pair["initiator"],
              "confirmed": bool(s.pair["local"])}
@@ -1347,6 +1426,8 @@ class Node:
             "media": self.cfg["media"],
             "phone_audio": self.cfg["phone_audio"],
             "phone_audio_available": phoneaudio.available(),
+            "phone_screen": self.cfg["phone_screen"],
+            "phone_screen_available": phonescreen.available(),
         }
 
 

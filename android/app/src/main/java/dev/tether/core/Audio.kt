@@ -26,3 +26,17 @@ fun Node.reportAudioState(peerId: String, on: Boolean) {
 fun Node.setAudioVolume(peerId: String, volume: Double) {
     session(peerId)?.channel?.trySend(jobj("t" to "audio_volume", "volume" to volume.coerceIn(0.0, 1.0)))
 }
+
+/**
+ * Streams the phone's screen, as an H.264 byte stream from [source], to a computer, which shows it.
+ * Blocks until [source] ends, the computer stops it (RemoteError "cancelled"), or the connection drops.
+ */
+fun Node.streamScreen(peerId: String, source: InputStream) {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    s.channel.request(jobj("t" to "screen", "codec" to "h264"), upload = source, uploadLength = -1, timeoutMs = 10_000)
+}
+
+/** Tells a computer we stopped showing it our screen (so it can stop waiting after a refusal). */
+fun Node.reportScreenState(peerId: String, on: Boolean) {
+    session(peerId)?.channel?.trySend(jobj("t" to "screen_state", "on" to on))
+}

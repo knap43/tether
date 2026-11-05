@@ -49,6 +49,11 @@ def device_subtitle(d: dict) -> str:
         parts.append("Playing its audio here")
     elif audio == "starting":
         parts.append("Waiting for the phone to share audio…")
+    screen = d.get("screen")
+    if screen == "on":
+        parts.append("Showing its screen here")
+    elif screen == "starting":
+        parts.append("Waiting for the phone to share its screen…")
     return " · ".join(parts)
 
 
@@ -319,7 +324,9 @@ class TetherWindow(Adw.ApplicationWindow):
         self._updating = True
         try:
             audio_ok = bool(st.get("phone_audio", True) and st.get("phone_audio_available", True))
-            self.paired.update([{**d, "audio_ok": audio_ok} for d in st["devices"]], self._device_rows)
+            screen_ok = bool(st.get("phone_screen", True) and st.get("phone_screen_available", True))
+            self.paired.update([{**d, "audio_ok": audio_ok, "screen_ok": screen_ok} for d in st["devices"]],
+                               self._device_rows)
             self.pending.update(st["pending"], self._pending_rows)
             self.pending.group.set_visible(bool(st["pending"]))
             self.nearby.update(st["discovered"], self._nearby_rows)
@@ -339,6 +346,11 @@ class TetherWindow(Adw.ApplicationWindow):
             self.audio_row.set_subtitle(
                 "Start it from the phone, or with the speaker button by the phone" if st.get("phone_audio_available", True)
                 else "Needs pacat (from libpulse), which isn't installed"
+            )
+            self.screen_row.set_active(bool(st.get("phone_screen", True)))
+            self.screen_row.set_subtitle(
+                "Start it from the phone, or with the screen button by the phone" if st.get("phone_screen_available", True)
+                else "Needs mpv or ffplay, neither of which is installed"
             )
             self.media_row.set_subtitle(
                 "Play, pause, skip, seek and volume, from the phone" if st.get("media_available", True)
@@ -391,6 +403,8 @@ class TetherWindow(Adw.ApplicationWindow):
                 row.add_suffix(icon_button("folder-remote-symbolic", "Browse Files", action="win.browse", target=d["id"]))
                 if d.get("type") == "phone" and d.get("audio_ok"):
                     row.add_suffix(self._audio_toggle(d))
+                if d.get("type") == "phone" and d.get("screen_ok"):
+                    row.add_suffix(self._screen_toggle(d))
                 menu.append("Send Clipboard", f"win.send-clip::{d['id']}")
                 menu.append("Send Notification…", f"win.notify::{d['id']}")
                 self._accept_drops(row, d["id"])
@@ -412,6 +426,14 @@ class TetherWindow(Adw.ApplicationWindow):
                              tooltip_text="Stop Phone Audio" if on else "Play Phone Audio Here")
         b.add_css_class("flat")
         b.connect("toggled", lambda btn: self.call("phone_audio", device=d["id"], on=btn.get_active()))
+        return b
+
+    def _screen_toggle(self, d: dict) -> Gtk.ToggleButton:
+        on = d.get("screen") in ("on", "starting")
+        b = Gtk.ToggleButton(icon_name="video-display-symbolic", active=on, valign=Gtk.Align.CENTER,
+                             tooltip_text="Stop Showing Phone Screen" if on else "Show Phone Screen Here")
+        b.add_css_class("flat")
+        b.connect("toggled", lambda btn: self.call("phone_screen", device=d["id"], on=btn.get_active()))
         return b
 
     def _accept_drops(self, row: Gtk.Widget, device_id: str):
@@ -928,6 +950,10 @@ class TetherWindow(Adw.ApplicationWindow):
         self.audio_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="phone_audio", value=r.get_active()))
         media.add(self.audio_row)
+        self.screen_row = Adw.SwitchRow(title="Show phone screen here")
+        self.screen_row.connect("notify::active", lambda r, _p: self._updating or self.call(
+            "set", key="phone_screen", value=r.get_active()))
+        media.add(self.screen_row)
         page.add(media)
 
         self.wol = ListGroup("Wake on LAN",

@@ -32,6 +32,7 @@ import dev.tether.R
 import dev.tether.core.NodeEvent
 import dev.tether.core.RemoteError
 import dev.tether.core.reportAudioState
+import dev.tether.core.reportScreenState
 import dev.tether.core.setAudioVolume
 import dev.tether.core.streamAudio
 import java.io.IOException
@@ -45,6 +46,7 @@ object PhoneAudio {
     const val RATE = 48_000
     const val CHANNELS = 2
     const val EXTRA_PEER = "peer"
+    const val EXTRA_SCREEN = "screen"
     private const val PREFS = "audio"
     private const val KEY_SILENCE = "silence_phone"
     private const val ID_ASK = 3
@@ -75,12 +77,18 @@ object PhoneAudio {
 
     /** From one of our activities: asks for consent, then streams to [peer]. */
     fun start(context: Context, peer: String) {
-        context.startActivity(Intent(context, AudioCaptureActivity::class.java).putExtra(EXTRA_PEER, peer))
+        context.startActivity(captureIntent(context, peer))
     }
+
+    /** A fresh consent replaces the capture, so while the screen is showing it has to carry on too. */
+    private fun captureIntent(context: Context, peer: String) =
+        Intent(context, AudioCaptureActivity::class.java)
+            .putExtra(EXTRA_PEER, peer)
+            .putExtra(EXTRA_SCREEN, PhoneScreen.streamingTo == peer)
 
     fun stop(context: Context) {
         if (streamingTo != null) {
-            context.startService(Intent(context, AudioStreamService::class.java).setAction(AudioStreamService.ACTION_STOP))
+            context.startService(Intent(context, AudioStreamService::class.java).setAction(AudioStreamService.ACTION_STOP_AUDIO))
         }
     }
 
@@ -98,9 +106,7 @@ object PhoneAudio {
             return
         }
         if (streamingTo == e.from) return
-        val open = Intent(context, AudioCaptureActivity::class.java)
-            .putExtra(EXTRA_PEER, e.from)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val open = captureIntent(context, e.from).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         // The consent dialog needs an activity; with "display over other apps" we may start one
         // from the background, otherwise the user taps a notification.
         if (Settings.canDrawOverlays(context)) {
@@ -134,11 +140,14 @@ object PhoneAudio {
 /** Invisible: gets the audio permission and the capture consent, then hands over to the service. */
 class AudioCaptureActivity : Activity() {
     private var peer: String? = null
+    private var screen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         peer = intent?.getStringExtra(PhoneAudio.EXTRA_PEER)
+        screen = intent?.getBooleanExtra(PhoneAudio.EXTRA_SCREEN, false) == true
         PhoneAudio.cancelAsk(this)
+        PhoneScreen.cancelAsk(this)
         if (savedInstanceState != null) return // a result is on its way
         if (peer == null || Hub.node?.isConnected(peer!!) != true) return fail("That computer isn't connected")
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -150,8 +159,8 @@ class AudioCaptureActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            askConsent()
+        if (screen || grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            askConsent() // the screen can do without its sound
         } else {
             fail("Tether needs the audio permission to capture what the phone plays")
         }
@@ -177,6 +186,7 @@ class AudioCaptureActivity : Activity() {
             Intent(this, AudioStreamService::class.java)
                 .setAction(AudioStreamService.ACTION_START)
                 .putExtra(PhoneAudio.EXTRA_PEER, peer)
+                .putExtra(PhoneAudio.EXTRA_SCREEN, screen)
                 .putExtra(AudioStreamService.EXTRA_CODE, resultCode)
                 .putExtra(AudioStreamService.EXTRA_DATA, data),
         )
@@ -188,7 +198,9 @@ class AudioCaptureActivity : Activity() {
         if (msg != null) Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         val node = Hub.node
         val p = peer
-        if (node != null && p != null) node.pool.execute { node.reportAudioState(p, false) }
+        if (node != null && p != null) {
+            node.pool.execute { if (screen) node.reportScreenState(p, false) else node.reportAudioState(p, false) }
+        }
         finish()
         overridePendingTransition(0, 0)
     }
@@ -199,12 +211,17 @@ class AudioCaptureActivity : Activity() {
     }
 }
 
-/** Captures the device's playback and streams it while a foreground notification is up. */
+/**
+ * Captures the device's playback, its screen or both, and streams them while a foreground
+ * notification is up. Android allows one capture at a time, so the two share it here: the sound
+ * comes along with the screen, and ends with it.
+ */
 class AudioStreamService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var projection: MediaProjection? = null
     private var record: AudioRecord? = null
     private var worker: Thread? = null
+    private var screen: ScreenStream? = null
     private var mutedByUs = false
     private var next: Intent? = null // a newer consent, started once the current capture ends
     private var wifiLock: WifiManager.WifiLock? = null
@@ -223,10 +240,9 @@ class AudioStreamService : Service() {
                 val step = if (intent.action == ACTION_LOUDER) 0.1 else -0.1
                 PhoneAudio.setVolume(this, peer, Math.round((now + step) * 10) / 10.0)
             }
-            ACTION_REFRESH -> PhoneAudio.streamingTo?.let { peer ->
-                getSystemService(NotificationManager::class.java)?.notify(Notifications.ID_AUDIO, buildNotification(peerName(peer), peer))
-            }
-            ACTION_STOP -> if (worker == null) stopSelf() else halt()
+            ACTION_REFRESH -> redraw()
+            ACTION_STOP -> if (worker == null && screen == null) stopSelf() else halt()
+            ACTION_STOP_AUDIO -> if (worker == null && screen == null) stopSelf() else haltAudio()
             else -> stopSelf()
         }
         return START_NOT_STICKY
@@ -247,12 +263,15 @@ class AudioStreamService : Service() {
             intent.getParcelableExtra(EXTRA_DATA)
         }
         val node = Hub.node
+        val wantScreen = intent.getBooleanExtra(PhoneAudio.EXTRA_SCREEN, false)
+        val mayRecord = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         // Android requires the foreground service (of type mediaProjection) before the projection.
         startForeground(
             Notifications.ID_AUDIO, buildNotification(peerName(peer), peer),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                (if (mayRecord) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0),
         )
-        if (worker != null) {
+        if (worker != null || screen != null) {
             // Already streaming (perhaps elsewhere): a fresh consent replaces the old capture.
             next = intent
             halt()
@@ -263,7 +282,7 @@ class AudioStreamService : Service() {
             getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, data)
         } catch (e: Exception) {
             null
-        } ?: return finishWith(peer, "Couldn't start capturing audio")
+        } ?: return if (wantScreen) screenEnded(peer, "Couldn't start capturing the screen") else finishWith(peer, "Couldn't start capturing audio")
         projection = mp
         mp.registerCallback(object : MediaProjection.Callback() {
             // The user revoked it (e.g. from the status bar). Ignore a stale projection's late stop.
@@ -271,19 +290,37 @@ class AudioStreamService : Service() {
                 if (projection === mp) halt()
             }
         }, main)
+        holdLocks()
+        if (wantScreen) {
+            val stream = ScreenStream(this, mp, peer) { error -> screenEnded(peer, error) }
+            try {
+                stream.start()
+            } catch (e: Exception) {
+                platform("screen: couldn't start ($e)")
+                return screenEnded(peer, "Couldn't capture this phone's screen")
+            }
+            screen = stream
+            PhoneScreen.streamingTo = peer
+            Hub.dispatch(NodeEvent.StatusChanged)
+            redraw()
+        }
         val rec = try {
-            createRecord(mp)
+            if (mayRecord) createRecord(mp) else null
         } catch (e: Exception) {
             null
-        } ?: return finishWith(peer, "Couldn't capture this phone's audio")
+        }
+        if (rec == null) {
+            if (!wantScreen) finishWith(peer, "Couldn't capture this phone's audio")
+            return // the screen goes on without its sound
+        }
         record = rec
         rec.startRecording()
         silence()
-        holdLocks()
         stopping = false
         PhoneAudio.streamingTo = peer
         Hub.dispatch(NodeEvent.StatusChanged)
         worker = Thread({ stream(peer, rec) }, "tether-audio").apply { start() }
+        redraw()
     }
 
     @SuppressLint("MissingPermission") // AudioCaptureActivity obtained RECORD_AUDIO
@@ -358,26 +395,49 @@ class AudioStreamService : Service() {
 
     private fun platform(msg: String) = AndroidPlatform(applicationContext).log(msg)
 
-    /** Asks the capture to end; the worker notices and cleans up. */
+    /** Asks the whole capture to end; the workers notice and clean up. */
     private fun halt() {
+        haltAudio()
+        screen?.stop()
+    }
+
+    private fun haltAudio() {
         stopping = true
         runCatching { record?.stop() } // unblocks a pending read
     }
 
+    /** The audio part has ended, or never began. */
     private fun finishWith(peer: String?, error: String?) {
         stopping = true
         worker = null
         record?.let { runCatching { it.stop() }; it.release() }
         record = null
-        projection?.let { runCatching { it.stop() } }
-        projection = null
         unsilence()
-        releaseLocks()
         PhoneAudio.streamingTo = null
         Hub.dispatch(NodeEvent.StatusChanged)
         val node = Hub.node
         if (peer != null && node != null) node.pool.execute { node.reportAudioState(peer, false) }
+        // A computer that won't play the sound can still show the picture, so that isn't news.
+        if (error != null && screen == null) Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+        settle()
+    }
+
+    /** The screen part has ended, or never began; its sound ends with it. */
+    private fun screenEnded(peer: String, error: String?) {
+        screen = null
+        PhoneScreen.streamingTo = null
+        Hub.dispatch(NodeEvent.StatusChanged)
+        Hub.node?.let { node -> node.pool.execute { node.reportScreenState(peer, false) } }
         if (error != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+        if (worker != null) haltAudio() else settle()
+    }
+
+    /** Once nothing is left streaming, gives up the capture and goes on to whatever is next. */
+    private fun settle() {
+        if (worker != null || screen != null) return redraw()
+        projection?.let { runCatching { it.stop() } }
+        projection = null
+        releaseLocks()
         next?.let {
             next = null
             begin(it)
@@ -429,23 +489,37 @@ class AudioStreamService : Service() {
 
     private fun peerName(peer: String?): String = peer?.let { Hub.node?.peers?.get(it)?.name } ?: "your computer"
 
+    private fun redraw() {
+        val peer = PhoneScreen.streamingTo ?: PhoneAudio.streamingTo ?: return
+        getSystemService(NotificationManager::class.java)?.notify(Notifications.ID_AUDIO, buildNotification(peerName(peer), peer))
+    }
+
     private fun buildNotification(computer: String, peer: String?): Notification {
         fun action(a: String, code: Int) = PendingIntent.getService(
             this, code, Intent(this, AudioStreamService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE,
         )
         val vol = peer?.let { PhoneAudio.volume[it] }
-        return Notification.Builder(this, Notifications.CH_AUDIO)
-            .setSmallIcon(R.drawable.ic_volume)
+        val sound = PhoneAudio.streamingTo != null
+        val showing = PhoneScreen.streamingTo != null
+        val b = Notification.Builder(this, Notifications.CH_AUDIO)
+            .setSmallIcon(if (showing) R.drawable.ic_screen else R.drawable.ic_volume)
             .setColor(md(R.color.md_primary))
-            .setContentTitle("Playing on $computer")
-            .setContentText(if (vol != null) "Volume ${Math.round(vol * 100)}%" else "This phone's audio is streaming to your computer")
+            .setContentTitle(if (showing) "Showing screen on $computer" else "Playing on $computer")
+            .setContentText(
+                when {
+                    sound && vol != null -> "Volume ${Math.round(vol * 100)}%"
+                    showing -> "Everything on this screen can be seen there"
+                    else -> "This phone's audio is streaming to your computer"
+                },
+            )
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(Notifications.openApp(this))
-            .addAction(Notification.Action.Builder(null, "Quieter", action(ACTION_QUIETER, 1)).build())
-            .addAction(Notification.Action.Builder(null, "Louder", action(ACTION_LOUDER, 2)).build())
-            .addAction(Notification.Action.Builder(null, "Stop", action(ACTION_STOP, 0)).build())
-            .build()
+        if (sound || !showing) {
+            b.addAction(Notification.Action.Builder(null, "Quieter", action(ACTION_QUIETER, 1)).build())
+            b.addAction(Notification.Action.Builder(null, "Louder", action(ACTION_LOUDER, 2)).build())
+        }
+        return b.addAction(Notification.Action.Builder(null, "Stop", action(ACTION_STOP, 0)).build()).build()
     }
 
     /** Reads the capture in 20 ms pieces, so each one goes out as soon as it's recorded. */
@@ -464,13 +538,14 @@ class AudioStreamService : Service() {
     companion object {
         const val ACTION_START = "dev.tether.AUDIO_START"
         const val ACTION_STOP = "dev.tether.AUDIO_STOP"
+        const val ACTION_STOP_AUDIO = "dev.tether.AUDIO_STOP_AUDIO"
         const val ACTION_LOUDER = "dev.tether.AUDIO_LOUDER"
         const val ACTION_QUIETER = "dev.tether.AUDIO_QUIETER"
         private const val ACTION_REFRESH = "dev.tether.AUDIO_REFRESH"
 
         /** Redraws the streaming notification (its volume line). */
         fun refresh(context: Context) {
-            if (PhoneAudio.streamingTo == null) return
+            if (PhoneAudio.streamingTo == null && PhoneScreen.streamingTo == null) return
             context.startService(Intent(context, AudioStreamService::class.java).setAction(ACTION_REFRESH))
         }
         const val EXTRA_CODE = "code"

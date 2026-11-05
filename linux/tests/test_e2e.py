@@ -476,6 +476,79 @@ async def main(root: Path):
     real_media.has_wpctl = bool(shutil.which("wpctl"))
     print("ok  phone audio")
 
+    # --- phone screen: B streams video to A; closing the viewer stops it
+    class FakeViewer:
+        made = []
+
+        def __init__(self, title):
+            self.title = title
+            self.data, self.closed = bytearray(), False
+            self.exited = asyncio.Event()
+            FakeViewer.made.append(self)
+
+        def write(self, data):
+            self.data.extend(data)
+
+        async def wait_exit(self):
+            await self.exited.wait()
+
+        async def close(self):
+            self.closed = True
+
+    A.screen_sink = FakeViewer
+    video = os.urandom(4096)
+
+    async def endless():
+        while True:
+            yield video
+            await asyncio.sleep(0.01)
+
+    B.seen_ctl = []
+    B._h_screen_ctl = lambda s, msg: B.seen_ctl.append(msg["on"]) or asyncio.sleep(0)
+    async def once():
+        yield video
+
+    try:
+        await sb.request({"t": "screen", "codec": "vp9"}, upload=once())
+        raise AssertionError("unknown codec accepted")
+    except ProtoError as e:
+        assert e.code == "bad_request", e
+    streaming = asyncio.ensure_future(sb.request({"t": "screen", "codec": "h264"}, upload=endless()))
+    await until(lambda: A.sessions[B.identity.id].screen == "on", what="screen on")
+    await until(lambda: len(FakeViewer.made[0].data) >= len(video) * 2, what="video reaching the viewer")
+    assert FakeViewer.made[0].data[:len(video)] == video
+    FakeViewer.made[0].exited.set()  # the user closes the window
+    try:
+        await asyncio.wait_for(streaming, 5)
+        raise AssertionError("stream outlived its viewer")
+    except ProtoError as e:
+        assert e.code == "cancelled", e
+    await until(lambda: FakeViewer.made[0].closed and A.sessions[B.identity.id].screen == "off", what="viewer closed")
+
+    streaming = asyncio.ensure_future(sb.request({"t": "screen", "codec": "h264"}, upload=endless()))
+    await until(lambda: A.sessions[B.identity.id].screen == "on", what="screen on again")
+    await A.set_phone_screen(B.identity.id, False)  # stopped from the computer
+    try:
+        await asyncio.wait_for(streaming, 5)
+        raise AssertionError("stopped screen stream completed")
+    except ProtoError as e:
+        assert e.code == "cancelled", e
+    await until(lambda: B.seen_ctl == [False] and FakeViewer.made[1].closed, what="phone told to stop")
+
+    A.cfg["phone_screen"] = False
+    try:
+        await sb.request({"t": "screen", "codec": "h264"}, upload=once())
+        raise AssertionError("screen accepted while turned off")
+    except ProtoError as e:
+        assert e.code == "denied", e
+    try:
+        await A.set_phone_screen(B.identity.id, True)
+        raise AssertionError("asked for the screen while turned off")
+    except ProtoError as e:
+        assert e.code == "denied", e
+    A.cfg["phone_screen"] = True
+    print("ok  phone screen")
+
     # --- reconnect after drop
     sa.channel.close()
     await until(lambda: not A.is_connected(B.identity.id), what="drop")

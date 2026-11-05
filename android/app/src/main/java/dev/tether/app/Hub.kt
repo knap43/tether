@@ -114,7 +114,7 @@ object Notifications {
             },
         )
         nm.createNotificationChannel(
-            NotificationChannel(CH_AUDIO, "Audio streaming to a computer", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CH_AUDIO, "Audio and screen streaming to a computer", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
             },
         )
@@ -212,6 +212,7 @@ class AndroidPlatform(private val context: Context) : Platform {
             }
             is NodeEvent.TransferProgress -> TransferNotifier.update(context, event.info)
             is NodeEvent.AudioControl -> PhoneAudio.onControl(context, event)
+            is NodeEvent.ScreenControl -> PhoneScreen.onControl(context, event)
             is NodeEvent.AudioVolume -> PhoneAudio.onVolume(context, event)
             is NodeEvent.Introduced -> Notifications.post(
                 context, "${event.byName} introduced ${event.name}",

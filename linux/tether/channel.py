@@ -16,7 +16,7 @@ PING_INTERVAL = 30
 IDLE_TIMEOUT = 90
 
 # Messages whose "stream" field announces data flowing *to* us.
-_INBOUND_STREAM_TYPES = {"send", "fs_write", "res", "clip_image", "audio"}
+_INBOUND_STREAM_TYPES = {"send", "fs_write", "res", "clip_image", "audio", "screen"}
 
 _ABORTED = object()
 _CLOSED = object()

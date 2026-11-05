@@ -78,6 +78,7 @@ DEFAULTS = {
     "media": True,
     "phone_audio": True,
     "phone_audio_volume": 1.0,
+    "phone_screen": True,
     "accept_introductions": True,
     "sidebar": [],  # device ids Tether keeps in the Files sidebar (opt-in)
     "sidebar_written": None,  # bookmark URLs Tether wrote; None until this version first runs

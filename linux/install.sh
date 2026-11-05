@@ -23,6 +23,10 @@ command -v pacat >/dev/null || {
     say "Installing pacat (plays the phone's audio)"
     sudo pacman -S --needed libpulse
 }
+command -v mpv >/dev/null || command -v ffplay >/dev/null || {
+    say "Installing mpv (shows the phone's screen)"
+    sudo pacman -S --needed mpv
+}
 
 say "Installing daemon to $lib"
 rm -rf "$lib"

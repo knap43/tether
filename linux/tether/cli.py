@@ -59,11 +59,13 @@ def cmd_status(paths, args):
     print(f"Clipboard:   {'on' if st['clipboard'] else 'off'} ({st['clipboard_backend']})")
     print(f"Media:       {'on' if st.get('media', True) else 'off'} (the phone controls players here)")
     print(f"Phone audio: {'on' if st.get('phone_audio', True) else 'off'} (the phone may play its sound here)")
+    print(f"Phone screen: {'on' if st.get('phone_screen', True) else 'off'} (the phone may show its screen here)")
     print(f"Downloads:   {st['download_dir']}")
     print("Paired devices:")
     for d in st["devices"] or []:
         audio = "  · playing audio here" if d.get("audio") == "on" else ""
-        print(f"  {'●' if d['connected'] else '○'} {short(d)}{'  connected' if d['connected'] else ''}{audio}")
+        screen = "  · showing its screen here" if d.get("screen") == "on" else ""
+        print(f"  {'●' if d['connected'] else '○'} {short(d)}{'  connected' if d['connected'] else ''}{audio}{screen}")
     if not st["devices"]:
         print("  (none — run `tether pair`)")
     if st["pending"]:
@@ -295,6 +297,12 @@ def cmd_audio(paths, args):
         print("asked the phone to stream its audio here — accept on the phone if it asks")
 
 
+def cmd_screen(paths, args):
+    Ctl(paths).call("phone_screen", device=args.device, on=args.state == "on")
+    if args.state == "on":
+        print("asked the phone to stream its screen here — accept on the phone")
+
+
 def cmd_command(paths, args):
     ctl = Ctl(paths)
     if args.action == "add":
@@ -487,6 +495,11 @@ def main(argv=None):
     p.add_argument("-d", "--device")
     p.set_defaults(fn=cmd_audio)
 
+    p = sub.add_parser("screen", help="show the phone's screen in a window on this computer")
+    p.add_argument("state", choices=["on", "off"])
+    p.add_argument("-d", "--device")
+    p.set_defaults(fn=cmd_screen)
+
     p = sub.add_parser("command", help="commands the phone may run here")
     p.add_argument("action", choices=["list", "add", "remove"])
     p.add_argument("name", nargs="?")
@@ -499,7 +512,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_wol)
 
     p = sub.add_parser("set", help="change a setting: name, clipboard, download_dir, scan_interval, "
-                                   "remote_shell, command_timeout, notifications, media, phone_audio")
+                                   "remote_shell, command_timeout, notifications, media, phone_audio, phone_screen")
     p.add_argument("key")
     p.add_argument("value")
     p.set_defaults(fn=cmd_set)

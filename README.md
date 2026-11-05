@@ -11,6 +11,7 @@ Your Android phone and your Linux computer or Mac, joined on the home network:
 - **Phone notifications on the desktop** — reply to messages from GNOME; dismissing on one side dismisses on the other.
 - **Media control** — play, pause, skip, seek and volume for whatever plays on the computer, from the phone.
 - **Phone audio on the computer** — what the phone plays comes out of the computer's speakers (Linux).
+- **Phone screen on the computer** — what the phone shows appears live in a window, with its sound (Linux).
 - **Battery** — the phone's charge in the top bar and the window, with a low-battery warning.
 - **Images on the clipboard** — copy a screenshot on one device, paste it on the other.
 - **Transfer progress** — progress bars with Cancel on both sides.
@@ -101,6 +102,7 @@ To also type arbitrary commands on the phone, run `tether set remote_shell on` (
 - **Notifications:** in the phone app, tap **Allow notification access**. Notifications then appear on the desktop; those from messaging apps get a **Reply** button. Turn individual apps off under **Settings → Apps** in the Tether window.
 - **Media:** tap **Media** next to your computer in the app, or use the playback notification that appears while something plays. This uses `playerctl`, which the installer adds, and works with any player that supports MPRIS (Spotify, Firefox, mpv, Rhythmbox…). Volume uses PipeWire's `wpctl`. To keep the phone out of it, turn off **Settings → Media** in the Tether window (or `tether set media off`).
 - **Phone audio:** tap **Phone audio** next to your computer in the app, or the speaker button by the phone in the Tether window (or `tether audio on`). Android asks each time before it lets an app capture what it plays; accept, and the phone's sound plays on the computer through PipeWire (`pacat`) as uncompressed 48 kHz stereo, about 1.5 Mbit/s. The phone goes quiet meanwhile unless you turn off **Audio → Silence this phone while streaming**. Volume: the slider under your computer in the app, or **Quieter**/**Louder** in the notification, sets the computer's own output volume (PipeWire, via `wpctl`) and follows it when you change it there; `tether audio volume 60` does the same. Stop it from the notification, the app, or the window. Apps that forbid capture (some streaming apps, calls) aren't heard. To refuse it, turn off **Settings → Play phone audio here** (or `tether set phone_audio off`).
+- **Phone screen:** tap **Show screen** next to your computer in the app, or the screen button by the phone in the Tether window (or `tether screen on`). Android asks each time; accept, and the screen opens in a window on the computer through `mpv` (or `ffplay`) as H.264 of up to 1920 pixels on the long edge, about 6 Mbit/s, following the phone when it turns. The phone's sound comes along as with phone audio, and stops with the picture. Stop it by closing the window, from the notification, the app or the Tether window, or with `tether screen off`. Apps that protect their content (banking, some streaming apps) show black. To refuse it, turn off **Settings → Show phone screen here** (or `tether set phone_screen off`).
 - **Battery:** shown next to the phone in the top-bar menu and the Tether window; a notification warns at 15%.
 
 ### Wake-on-LAN
@@ -158,6 +160,7 @@ Then tap **Restart Tether** in the app. Whenever you copy something, Tether brie
 - Sync works across any number of devices that use the same folder name, directly linked or through another device; very large folders (tens of thousands of files) send sizeable indexes.
 - Introductions come from Linux computers; a Mac neither makes nor accepts them yet, so pair it with the phone directly.
 - Phone audio is Linux only for now, and plays one phone at a time; latency is about a fifth of a second, growing to under half a second on a choppy network, so video on the phone may look slightly ahead of its sound.
+- Showing the phone's screen is Linux only for now, and shows one phone at a time; it only shows, so you can't control the phone from the window.
 - Android's shared storage is case-insensitive; two files differing only in case on Linux will collide there.
 
 ## Development
@@ -169,6 +172,7 @@ python3 linux/tests/test_sync_web.py # folder sync among three devices, linked i
 tests/interop/run.sh                # the Android app's Kotlin core against the Linux daemon (needs kotlinc)
 linux/tests/dbus/run.sh            # real D-Bus: desktop notifications via gdbus, media via playerctl (fake services)
 python3 linux/tests/test_parsers.py # parsers for playerctl, wpctl and gdbus output
+python3 linux/tests/test_screen.py  # the screen viewer: display lookup, feeding a real process, closing it
 dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 python3 linux/tests/gui_snapshot.py shots/
                                     # drives the GTK window against real daemons and saves a PNG of each page
 ```

@@ -247,6 +247,26 @@ volume (on Linux, the default PipeWire sink). While a stream plays the desktop
 sends it at the start and whenever the volume changes; the phone sends it from
 its slider.
 
+### Phone screen (phone → desktop)
+
+The phone streams its display as H.264:
+
+`{"t": "screen", "req": n, "stream": s, "codec": "h264"}` is answered at once
+(`ok`, or `denied` while the desktop has showing the screen off, `unsupported`,
+`bad_request`), and the stream then carries an Annex B byte stream until the
+phone ends it. The stream, and every keyframe after, starts with SPS and PPS, so
+a viewer can begin at any keyframe, and a change of size (the phone turned) is
+just a keyframe with a new SPS. A sender under pressure drops frames down to the
+next keyframe rather than queueing them. The desktop stops it with `cancel`, and
+does so when its viewer window closes; one stream shows at a time, the newest wins.
+
+`{"t": "screen_ctl", "on": bool}` (desktop → phone) asks the phone to start or
+stop streaming to it; starting always needs the user's consent on the phone.
+`{"t": "screen_state", "on": false}` (phone → desktop) reports that the phone
+stopped, or won't start (consent declined).
+
+The phone's sound, if it comes too, is an ordinary `audio` stream alongside.
+
 ### Wake-on-LAN (desktop → phone)
 
 `{"t": "host_info", "wol": [{"mac", "broadcast", "ip", "ifname", "wired"}]}` is
