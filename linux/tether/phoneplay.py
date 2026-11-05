@@ -17,6 +17,12 @@ log = logging.getLogger("tether.play")
 
 PROBE_TIMEOUT = 30
 MAX_URL = 4096
+# YouTube refuses many of its plain stream addresses unless each request names a byte range in the
+# address itself, which yt-dlp does and mpv can't, so HLS comes first. The Safari client offers HLS
+# for most videos, and the default clients cover the rest.
+YTDL_FORMAT = ("bestvideo[protocol^=m3u8]+bestaudio[protocol^=m3u8]/best[protocol^=m3u8]"
+               "/bestvideo+bestaudio[audio_channels<=2]/bestvideo+bestaudio/best")
+YTDL_CLIENTS = "youtube:player_client=default,web_safari"
 SURE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}  # the check would only add seconds
 
 
@@ -73,7 +79,7 @@ class Player:
         self.log_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", f"tether-player-{os.getpid()}.log")
         # The window waits for the first frame: a link takes many seconds to open, and a black screen says nothing.
         cmd = ["mpv", *mpv_look(title, fullscreen), "--hwdec=auto-safe", "--force-window=yes", "--keep-open=no",
-               "--ytdl-format=bestvideo+bestaudio[audio_channels<=2]/bestvideo+bestaudio/best",
+               f"--ytdl-format={YTDL_FORMAT}", f"--ytdl-raw-options-append=extractor-args={YTDL_CLIENTS}",
                "--ytdl-raw-options-append=no-playlist=", f"--log-file={self.log_path}", "--", *targets]
         self.proc = subprocess.Popen(cmd, env={**display_env(), **proxy_env()}, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

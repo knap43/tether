@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.R as M
 import dev.tether.R
@@ -29,6 +30,8 @@ class RemoteActivity : AppCompatActivity() {
     private lateinit var peer: String
     private lateinit var screen: Screen
     private val sender = Executors.newSingleThreadExecutor() // keeps events in order
+    private lateinit var hint: TextView
+    private var ready = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,23 +63,30 @@ class RemoteActivity : AppCompatActivity() {
                 addView(ui.iconButton(R.drawable.ic_screen, "F: fullscreen") { key("f") })
             },
         )
-        sender.execute {
-            try {
-                node.remoteOpen(peer)
-            } catch (e: RemoteError) {
-                runOnUiThread {
-                    ui.snack(
-                        screen.root,
-                        when (e.code) {
-                            "denied" -> "Turn on Settings → Let the phone use mouse and keyboard on the computer"
-                            "unsupported" -> "This needs a GNOME computer"
-                            else -> "Couldn't reach the computer"
-                        },
-                    )
-                }
-            } catch (e: IOException) {
-                runOnUiThread { ui.snack(screen.root, "Couldn't reach the computer") }
+    }
+
+    /** Asks each time we come back, so that switching it on at the computer is all it takes. */
+    override fun onResume() {
+        super.onResume()
+        if (!ready) open()
+    }
+
+    private fun open() = sender.execute {
+        val problem = try {
+            node.remoteOpen(peer)
+            null
+        } catch (e: RemoteError) {
+            when (e.code) {
+                "denied" -> "Remote is switched off on the computer.\n\nIn its Tether window, turn on Settings → Let the phone use mouse and keyboard, or run: tether set phone_remote on\n\nThen come back to this screen."
+                "unsupported" -> "This needs a GNOME computer"
+                else -> "Couldn't reach the computer"
             }
+        } catch (e: IOException) {
+            "Couldn't reach the computer"
+        }
+        runOnUiThread {
+            ready = problem == null
+            hint.text = problem ?: HELP
         }
     }
 
@@ -96,7 +106,11 @@ class RemoteActivity : AppCompatActivity() {
         orientation = LinearLayout.VERTICAL
         background = ui.rounded(R.color.md_surface_container_high, 28)
         keepScreenOn = true
-        addView(ui.help("Move with a finger · tap to click\nTwo fingers: scroll · tap to right-click").apply { gravity = Gravity.CENTER })
+        hint = ui.help(HELP).apply {
+            gravity = Gravity.CENTER
+            setPadding(ui.dp(24), 0, ui.dp(24), 0)
+        }
+        addView(hint)
         val slop = ViewConfiguration.get(context).scaledTouchSlop
         val scrollStep = ui.dp(SCROLL_STEP_DP).toFloat()
         var lastX = 0f
@@ -150,6 +164,7 @@ class RemoteActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PEER = "peer"
+        private const val HELP = "Move with a finger · tap to click\nTwo fingers: scroll · tap to right-click"
         private const val SPEED = 2f
         private const val SCROLL_STEP_DP = 24
         private const val TAP_MS = 300L

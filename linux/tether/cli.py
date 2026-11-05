@@ -60,6 +60,7 @@ def cmd_status(paths, args):
     print(f"Media:       {'on' if st.get('media', True) else 'off'} (the phone controls players here)")
     print(f"Phone audio: {'on' if st.get('phone_audio', True) else 'off'} (the phone may play its sound here)")
     print(f"Phone screen: {'on' if st.get('phone_screen', True) else 'off'} (the phone may show its screen here)")
+    print(f"Phone remote: {'on' if st.get('phone_remote', False) else 'off'} (the phone may use the mouse and keyboard)")
     print(f"Downloads:   {st['download_dir']}")
     print("Paired devices:")
     for d in st["devices"] or []:
