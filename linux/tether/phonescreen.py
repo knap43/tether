@@ -20,7 +20,6 @@ F_SETPIPE_SZ = 1031
 MAX_BUFFER = 8 * 1024 * 1024  # beyond this the viewer has stalled; it picks up again at the next keyframe
 PIECE = 64 * 1024
 MAX_DELAY = 0.6  # the most the picture is held back to stay with the sound
-MPRIS_SCRIPTS = ("/usr/lib/mpv-mpris/mpris.so", "/etc/mpv/scripts/mpris.so")  # lets the phone's Media screen drive mpv
 DISPLAY_VARS = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
                 "DBUS_SESSION_BUS_ADDRESS")
 
@@ -34,8 +33,7 @@ def mpv_look(title: str, fullscreen: bool = True) -> list[str]:
     args = ["--no-config", "--no-terminal", "--profile=high-quality",
             "--title=" + title.replace("$", "$$")]  # mpv expands ${…} in titles
     args += ["--fs"] if fullscreen else ["--geometry=480x480", "--auto-window-resize=no"]
-    mpris = next((p for p in MPRIS_SCRIPTS if os.path.exists(p)), None)
-    return args + [f"--script={mpris}"] if mpris else args
+    return args
 
 
 def viewer_command(title: str) -> list[str]:

@@ -4,7 +4,6 @@
 import dev.tether.core.Crypto
 import dev.tether.core.FileIdentity
 import dev.tether.core.PhoneNotification
-import dev.tether.core.RemoteMedia
 import dev.tether.core.Node
 import dev.tether.core.NodeEvent
 import dev.tether.core.Platform
@@ -50,7 +49,6 @@ fun main(args: Array<String>) {
                 is NodeEvent.Notification -> emit("NOTIFY ${event.title}|${event.text}")
                 is NodeEvent.AudioControl -> emit("AUDIOCTL ${event.on}")
                 is NodeEvent.AudioVolume -> emit("AUDIOVOL ${event.volume}")
-                is NodeEvent.MediaUpdate -> emit("MEDIA ${event.state.active?.title}|${event.state.active?.status}")
                 is NodeEvent.TransferProgress -> {
                     val i = event.info
                     if (i.state == "active" && i.name.startsWith("cancel-")) nodeRef?.cancelTransfer(i.id)
@@ -182,15 +180,6 @@ fun main(args: Array<String>) {
                     val data = File(parts[1]).readBytes()
                     node.sendClipboardImage("image/png", data)
                     emit("OK")
-                }
-                "mstate" -> {
-                    val st = RemoteMedia(node, parts[1]).state()
-                    emit("MSTATE ${st.active?.title}|${st.active?.artist}|${st.volume}")
-                }
-                "media" -> {
-                    val args = parts[2].split(" ")
-                    val st = RemoteMedia(node, parts[1]).command(args[0], value = args.getOrNull(1)?.toDouble())
-                    emit("MSTATE ${st.active?.title}|${st.active?.artist}|${st.volume}")
                 }
                 "canwake" -> emit("CANWAKE ${node.canWake(parts[1])} ${node.peers.get(parts[1])?.wol?.joinToString { it.mac }}")
                 "wake" -> emit("WOKE " + node.wake(parts[1], listOf(parts[2].toInt())))

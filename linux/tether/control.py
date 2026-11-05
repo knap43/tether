@@ -222,8 +222,6 @@ class ControlServer:
             return None
         if cmd == "phone_audio_volume":
             return {"volume": await n.set_phone_audio_volume(req.get("volume"))}
-        if cmd == "media_state":
-            return await n.media.state()
         if cmd == "debug_send" and os.environ.get("TETHER_DEBUG"):
             target = n.sessions.get(n_resolve(n, req["device"], connected=True))
             await target.channel.send(req["msg"])

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from .errors import ProtoError
 from .mpvcontrol import MpvControl
-from .phonescreen import MPRIS_SCRIPTS
 
 log = logging.getLogger("tether.music")
 
@@ -99,8 +98,5 @@ class MusicPlayer(MpvControl):
         super().__init__("music")
         cmd = ["mpv", "--no-config", "--no-terminal", "--no-video", "--force-window=no", "--gapless-audio=weak",
                f"--input-ipc-server={self.socket}", f"--playlist-start={start}", f"--volume={volume}"]
-        mpris = next((p for p in MPRIS_SCRIPTS if os.path.exists(p)), None)
-        if mpris:
-            cmd.append(f"--script={mpris}")
         self.proc = subprocess.Popen([*cmd, "--", *tracks], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL, start_new_session=True)

@@ -78,11 +78,6 @@
         </activity-alias>
 
         <activity
-            android:name=".app.MediaActivity"
-            android:exported="false"
-            android:launchMode="singleTop" />
-
-        <activity
             android:name=".app.BrowseActivity"
             android:exported="false" />
 

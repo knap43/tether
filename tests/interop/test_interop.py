@@ -214,7 +214,7 @@ async def main(root: Path, cp: str):
         assert (await k.expect("NOTIFY")) == "NOTIFY Build done|all tests green ✓"
         print("ok  remote commands + notifications")
 
-        # --- battery, notifications, clipboard images, media, transfers (Kotlin ⇄ Python)
+        # --- battery, notifications, clipboard images, transfers (Kotlin ⇄ Python)
         await k.cmd("battery 42 true")
         await until(lambda: A.status()["devices"][0]["battery"] == {"level": 42, "charging": True}, what="battery")
 
@@ -259,34 +259,6 @@ async def main(root: Path, cp: str):
         await k.cmd(f"clipimg {img2}")
         await until(lambda: getattr(A.clip, "image", None) == ("image/png", img2.read_bytes()), what="image K→A")
         print("ok  clipboard images both ways")
-
-        calls = []
-
-        class FakeMedia:
-            available = True
-            st = {"players": [{"name": "spotify", "identity": "Spotify", "status": "Playing", "title": "Song",
-                               "artist": "Band", "album": "", "length": 200000, "position": 1000, "at": 0}],
-                  "volume": {"level": 0.5, "muted": False}, "available": True}
-
-            async def state(self):
-                return self.st
-
-            async def command(self, player, action, value=None):
-                calls.append((player, action, value))
-                return self.st
-
-            async def refresh(self):
-                return self.st
-
-        A.media = FakeMedia()
-        assert (await k.cmd(f"mstate {aid}", "MSTATE")) == "MSTATE Song|Band|0.5"
-        await k.cmd(f"media {aid} next", "MSTATE")
-        await k.cmd(f"media {aid} volume 0.25", "MSTATE")
-        assert calls == [(None, "next", None), (None, "volume", 0.25)], calls
-        A._on_media_change(FakeMedia.st)
-        while (line := await k.expect("MEDIA")) != "MEDIA Song|Playing":
-            pass  # earlier updates (the real player list at connect time) may be queued first
-        print("ok  media control from the phone")
 
         big = root / "movie.mkv"
         big.write_bytes(os.urandom(4_000_000))

@@ -212,20 +212,6 @@ The desktop decides which apps it shows (a mute list keyed by `app`).
 Request `{"t": "clip_image", "req", "stream", "mime": "image/png", "size"}`
 followed by the image (≤ 16 MiB). The receiver puts it on its clipboard.
 
-### Media (phone controls the desktop's players)
-
-| request | fields | answer |
-|---|---|---|
-| `media_state` | — | `players`, `volume`, `available` |
-| `media_cmd` | `action`, `player` (optional), `value` | same as `media_state`, after the command |
-
-Actions: `play_pause`, `play`, `pause`, `next`, `previous`, `stop`,
-`seek` (value: seconds, ±), `position` (value: ms), `volume` (value: 0–1),
-`mute` (toggle). A player is `{"name", "identity", "status", "title",
-"artist", "album", "length", "position", "at"}` (times in ms); the first
-player is the most relevant one (playing before paused). The desktop pushes
-`{"t": "media_update", ...same fields}` to phones when something changes.
-
 ### Phone audio (phone → desktop)
 
 The phone streams what it plays as raw PCM:

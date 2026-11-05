@@ -15,17 +15,13 @@ if ! python3 -c 'import cryptography, aiohttp, gi; gi.require_version("Gtk", "4.
     say "Installing dependencies"
     sudo pacman -S --needed python-cryptography python-aiohttp python-gobject gtk4 libadwaita
 fi
-command -v playerctl >/dev/null || {
-    say "Installing playerctl (media control from the phone)"
-    sudo pacman -S --needed playerctl
-}
 command -v pacat >/dev/null || {
     say "Installing pacat (plays the phone's audio)"
     sudo pacman -S --needed libpulse
 }
-{ command -v mpv >/dev/null && command -v yt-dlp >/dev/null && pacman -Q mpv-mpris >/dev/null 2>&1; } || {
+{ command -v mpv >/dev/null && command -v yt-dlp >/dev/null; } || {
     say "Installing mpv and yt-dlp (play what the phone shares and shows)"
-    sudo pacman -S --needed mpv mpv-mpris yt-dlp
+    sudo pacman -S --needed mpv yt-dlp
 }
 
 say "Installing daemon to $lib"

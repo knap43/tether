@@ -345,35 +345,6 @@ async def main(root: Path):
     await until(lambda: getattr(A.clip, "image", None) == ("image/png", img_b), what="image B→A")
     print("ok  clipboard images")
 
-    calls = []
-
-    class FakeMedia:
-        available = True
-        st = {"players": [{"name": "spotify", "identity": "Spotify", "status": "Playing", "title": "Song",
-                           "artist": "Band", "album": "", "length": 200000, "position": 1000, "at": 0}],
-              "volume": {"level": 0.5, "muted": False}, "available": True}
-
-        async def state(self):
-            return self.st
-
-        async def command(self, player, action, value=None):
-            calls.append((player, action, value))
-            return self.st
-
-        async def refresh(self):
-            return self.st
-
-    A.media = FakeMedia()
-    r = await sb.request({"t": "media_state"})
-    assert r["players"][0]["title"] == "Song" and r["volume"]["level"] == 0.5
-    await sb.request({"t": "media_cmd", "player": "spotify", "action": "next"})
-    await sb.request({"t": "media_cmd", "action": "volume", "value": 0.3})
-    assert calls == [("spotify", "next", None), (None, "volume", 0.3)], calls
-    A._on_media_change(FakeMedia.st)
-    await until(lambda: any(m["t"] == "media_update" for m in b_got), what="media push")
-
-    print("ok  media control")
-
     big = root / "big.bin"
     big.write_bytes(os.urandom(3_000_000))
     events.clear()

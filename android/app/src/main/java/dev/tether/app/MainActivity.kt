@@ -247,7 +247,7 @@ class MainActivity : AppCompatActivity() {
         val screenOn = PhoneScreen.streamingTo == id
         val rows = listOf(
             tile("Remote", R.drawable.ic_screen) { open(RemoteActivity::class.java, RemoteActivity.EXTRA_PEER) } to
-                tile("Media", R.drawable.ic_play) { open(MediaActivity::class.java, MediaActivity.EXTRA_PEER) },
+                tile("Now playing", R.drawable.ic_play) { open(NowPlayingActivity::class.java, NowPlayingActivity.EXTRA_PEER) },
             tile("Music", R.drawable.ic_music) { open(MusicActivity::class.java, MusicActivity.EXTRA_PEER) } to
                 tile("Browse", R.drawable.ic_folder) { open(BrowseActivity::class.java, BrowseActivity.EXTRA_PEER) },
             tile("Send files", R.drawable.ic_upload) {

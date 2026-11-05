@@ -202,7 +202,7 @@ class Node:
         self.last_clip = None
         self.last_clip_image: str | None = None
         self.transfers = Transfers(self.emit)
-        self.media = Media(self._on_media_change)
+        self.media = Media()
         self.desk = DesktopNotifier(self._on_notif_action, self._on_notif_closed)
         self.notif_map: dict[int, dict] = {}  # desktop id -> {peer, key, title, app, acted}
         self.notif_apps: dict[str, str] = {}  # package -> label, seen this run
@@ -251,8 +251,6 @@ class Node:
         self.sync_desktop()
         self.spawn(self._scan_loop())
         self.spawn(self._reconnect_loop())
-        self.spawn(self.media.watch())
-        self.spawn(self._media_poll())
         self.spawn(self.desk.watch())
         if with_discovery:
             self.spawn(self.sleepwatch.watch())
@@ -342,8 +340,6 @@ class Node:
         await self._introduce(s)
         if s.type == "phone":
             await self._send_host_info(s)
-        if s.type == "phone" and self.media.available:
-            await s.channel.send({"t": "media_update", **await self.media.state()})
         await self._send_indexes(s)
 
     def on_beacon(self, peer_id: str, host: str, port: int) -> None:
@@ -1096,32 +1092,6 @@ class Node:
         if s.peer_id == self.play_peer and self._now_playing():  # back after a dropped connection
             await s.channel.send({"t": "play_state", "on": True})
 
-    # -- media (the phone controls players here) ---------------------------------------
-
-    def _on_media_change(self, state: dict) -> None:
-        for s in self.connected():
-            if s.type == "phone":
-                s.channel.spawn(s.channel.send({"t": "media_update", **state}))
-
-    async def _media_poll(self) -> None:
-        while True:
-            await asyncio.sleep(5)
-            if self.media.available and any(s.type == "phone" for s in self.connected()):
-                await self.media.refresh()
-
-    async def _h_media_state(self, s, msg):
-        await s.channel.reply(msg, **await self.media.state())
-
-    async def _h_media_cmd(self, s, msg):
-        player = msg.get("player") if isinstance(msg.get("player"), str) else None
-        try:
-            if msg.get("action") in ("volume", "mute"):
-                log.info("output volume changed by %s: %s %s", s.name, msg.get("action"), msg.get("value"))
-            state = await self.media.command(player, str(msg.get("action")), msg.get("value"))
-        except (ValueError, TypeError) as e:
-            raise ProtoError("unsupported", str(e)) from None
-        await s.channel.reply(msg, **state)
-
     # -- phone audio (the phone streams its sound to us) -----------------------------
 
     def _audio_state(self, s: Session) -> str:
@@ -1607,7 +1577,6 @@ class Node:
             "notifications": self.cfg["notifications"],
             "notif_muted": self.cfg["notif_muted"],
             "notif_apps": [{"app": a, "name": n} for a, n in sorted(self.notif_apps.items(), key=lambda x: x[1].lower())],
-            "media_available": self.media.available,
             "phone_audio": self.cfg["phone_audio"],
             "phone_audio_available": phoneaudio.available(),
             "phone_screen": self.cfg["phone_screen"],

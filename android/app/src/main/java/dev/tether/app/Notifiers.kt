@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
 import dev.tether.R
-import dev.tether.core.MediaState
 import dev.tether.core.TransferInfo
 
 fun humanSize(n: Long?): String {
@@ -17,77 +16,6 @@ fun humanSize(n: Long?): String {
         v /= 1024
     }
     return "%.1f GB".format(v)
-}
-
-/** Playback controls for the computer's media, as a notification. */
-object MediaNotifier {
-    private const val ID = 3
-
-    private fun serviceIntent(context: Context, code: Int, peer: String, action: String): PendingIntent =
-        PendingIntent.getService(
-            context, code,
-            Intent(context, TetherService::class.java)
-                .setAction(TetherService.ACTION_MEDIA)
-                .putExtra(TetherService.EXTRA_PEER, peer)
-                .putExtra(TetherService.EXTRA_MEDIA_ACTION, action),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-
-    private fun action(context: Context, icon: Int, title: String, pi: PendingIntent) =
-        Notification.Action.Builder(Icon.createWithResource(context, icon), title, pi).build()
-
-    /** The computer whose player the notification shows. */
-    @Volatile
-    var shownFor: String? = null
-        private set
-
-    fun update(context: Context, peer: String, computer: String, state: MediaState) {
-        val nm = context.getSystemService(NotificationManager::class.java) ?: return
-        val p = state.active
-        if (p == null || p.status == "Stopped") {
-            if (shownFor == null || shownFor == peer) {
-                nm.cancel(ID)
-                shownFor = null
-            }
-            return
-        }
-        shownFor = peer
-        val open = PendingIntent.getActivity(
-            context, 7,
-            Intent(context, MediaActivity::class.java).putExtra(MediaActivity.EXTRA_PEER, peer)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val n = Notification.Builder(context, Notifications.CH_MEDIA)
-            .setSmallIcon(R.drawable.ic_stat)
-            .setColor(context.md(R.color.md_primary))
-            .setContentTitle(p.title.ifEmpty { p.identity })
-            .setContentText(listOf(p.artist, "on $computer").filter { it.isNotEmpty() }.joinToString(" · "))
-            .setContentIntent(open)
-            .setOngoing(p.playing)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setStyle(Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2))
-            .addAction(action(context, android.R.drawable.ic_media_previous, "Previous", serviceIntent(context, 11, peer, "previous")))
-            .addAction(
-                if (p.playing) {
-                    action(context, android.R.drawable.ic_media_pause, "Pause", serviceIntent(context, 12, peer, "play_pause"))
-                } else {
-                    action(context, android.R.drawable.ic_media_play, "Play", serviceIntent(context, 12, peer, "play_pause"))
-                },
-            )
-            .addAction(action(context, android.R.drawable.ic_media_next, "Next", serviceIntent(context, 13, peer, "next")))
-            .build()
-        try {
-            nm.notify(ID, n)
-        } catch (e: SecurityException) {
-            // notifications not allowed
-        }
-    }
-
-    fun clear(context: Context) {
-        context.getSystemService(NotificationManager::class.java)?.cancel(ID)
-        shownFor = null
-    }
 }
 
 /** A progress notification per file transfer, with a Cancel button. */

@@ -9,7 +9,6 @@ The Mac side of Tether: the same daemon and protocol as on Linux, with a menu-ba
 - **Phone notifications in Notification Center**, with a Reply field for messaging apps; clearing one on the Mac clears it on the phone.
 - **Wake-on-LAN** — the phone can wake the Mac from sleep.
 
-Not yet: controlling the Mac's media from the phone (the phone hides its media controls).
 
 ```
 tether/      Python daemon and CLI (from ../linux/tether, with macOS backends)

@@ -20,7 +20,6 @@ import android.os.IBinder
 import android.provider.Settings as AndroidSettings
 import dev.tether.R
 import dev.tether.core.Node
-import dev.tether.core.RemoteMedia
 import dev.tether.core.Settings
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,19 +59,6 @@ class TetherService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_MEDIA -> {
-                val peer = intent.getStringExtra(EXTRA_PEER)
-                val action = intent.getStringExtra(EXTRA_MEDIA_ACTION)
-                val node = Hub.node
-                if (peer != null && action != null && node != null) {
-                    node.pool.execute {
-                        runCatching {
-                            val player = Hub.media[peer]?.active?.name
-                            RemoteMedia(node, peer).command(action, player)
-                        }
-                    }
-                }
-            }
             ACTION_CANCEL_TRANSFER -> Hub.node?.cancelTransfer(intent.getIntExtra(EXTRA_TRANSFER, -1))
         }
         return START_STICKY
@@ -82,7 +68,6 @@ class TetherService : Service() {
         clipboard?.removePrimaryClipChangedListener(clipListener)
         runCatching { unregisterReceiver(batteryReceiver) }
         runCatching { unregisterReceiver(screenReceiver) }
-        MediaNotifier.clear(this)
         logcat?.destroy()
         logcat = null
         multicastLock?.release()
@@ -189,10 +174,8 @@ class TetherService : Service() {
 
     companion object {
         const val ACTION_STOP = "dev.tether.STOP"
-        const val ACTION_MEDIA = "dev.tether.MEDIA"
         const val ACTION_CANCEL_TRANSFER = "dev.tether.CANCEL_TRANSFER"
         const val EXTRA_PEER = "peer"
-        const val EXTRA_MEDIA_ACTION = "media_action"
         const val EXTRA_TRANSFER = "transfer"
 
         fun autoClipboardAvailable(context: Context): Boolean =

@@ -28,7 +28,6 @@ object Hub {
     var node: Node? = null
 
     /** Latest media state per computer. */
-    val media = java.util.concurrent.ConcurrentHashMap<String, dev.tether.core.MediaState>()
 
     /** The last text we put on the clipboard ourselves, so we don't echo it back. */
     @Volatile
@@ -66,7 +65,6 @@ object Notifications {
     const val CH_SERVICE_HIDDEN = "service_hidden"
     const val CH_EVENTS = "events"
     const val CH_REMOTE = "remote"
-    const val CH_MEDIA = "media"
     const val CH_TRANSFERS = "transfers"
     const val CH_AUDIO = "audio"
     const val ID_SERVICE = 1
@@ -103,11 +101,7 @@ object Notifications {
         nm.createNotificationChannel(
             NotificationChannel(CH_REMOTE, "Sent from your computers", NotificationManager.IMPORTANCE_HIGH),
         )
-        nm.createNotificationChannel(
-            NotificationChannel(CH_MEDIA, "Media on your computers", NotificationManager.IMPORTANCE_LOW).apply {
-                setShowBadge(false)
-            },
-        )
+        nm.deleteNotificationChannel("media") // from when the phone could steer the computer's players
         nm.createNotificationChannel(
             NotificationChannel(CH_TRANSFERS, "Transfers", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
@@ -189,8 +183,6 @@ class AndroidPlatform(private val context: Context) : Platform {
                 PlaybackNotifier.connectionChanged(context)
                 context.contentResolver.notifyChange(DocumentsContract.buildRootsUri(PcDocumentsProvider.AUTHORITY), null)
                 TetherService.refreshNotification(context)
-                // A computer that went away (or to sleep) can't be playing anything for us.
-                MediaNotifier.shownFor?.let { if (Hub.node?.isConnected(it) != true) MediaNotifier.clear(context) }
             }
             is NodeEvent.PairRequest -> if (!event.initiator) {
                 val code = event.sas.substring(0, 3) + " " + event.sas.substring(3)
@@ -207,10 +199,6 @@ class AndroidPlatform(private val context: Context) : Platform {
             }
             is NodeEvent.Notification ->
                 Notifications.post(context, event.title, event.text, channel = Notifications.CH_REMOTE, subText = event.fromName)
-            is NodeEvent.MediaUpdate -> {
-                Hub.media[event.from] = event.state
-                MediaNotifier.update(context, event.from, event.fromName, event.state)
-            }
             is NodeEvent.TransferProgress -> TransferNotifier.update(context, event.info)
             is NodeEvent.AudioControl -> PhoneAudio.onControl(context, event)
             is NodeEvent.ScreenControl -> PhoneScreen.onControl(context, event)
