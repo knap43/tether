@@ -133,7 +133,7 @@ class ControlServer:
         if cmd == "set":
             key, value = req["key"], req["value"]
             if key not in ("name", "clipboard", "download_dir", "scan_interval", "remote_shell", "command_timeout",
-                           "notifications", "media", "phone_audio", "phone_screen", "accept_introductions"):
+                           "notifications", "media", "phone_audio", "phone_screen", "screen_sync_ms", "phone_play", "accept_introductions"):
                 raise ProtoError("bad_request", f"cannot set {key}")
             n.cfg[key] = value
             if key == "media":

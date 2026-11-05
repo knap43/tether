@@ -15,7 +15,7 @@ log = logging.getLogger("tether.audio")
 
 F_SETPIPE_SZ = 1031
 PACAT_LATENCY_MS = 60
-TARGET_MS = 100  # jitter buffer kept ahead of playback, absorbing Wi-Fi hiccups…
+TARGET_MS = 60  # jitter buffer kept ahead of playback, absorbing Wi-Fi hiccups…
 TARGET_MAX_MS = 400  # …grown after each dropout, up to this, when the network is choppier
 TARGET_STEP_MS = 60
 SETTLE_S = 60  # after this long without a dropout, the target creeps back down
@@ -47,6 +47,7 @@ class PacatSink:
         if not available():
             raise ProtoError("unsupported", "pacat isn't installed on the computer")
         self.frame = 2 * channels
+        self.bytes_per_s = rate * self.frame
         per_ms = rate * self.frame / 1000
         align = lambda n: int(n) - int(n) % self.frame  # noqa: E731
         self.piece = align(per_ms * PIECE_MS)
@@ -78,6 +79,10 @@ class PacatSink:
             pass
         self.thread = threading.Thread(target=self._run, name="tether-audio", daemon=True)
         self.thread.start()
+
+    def latency(self) -> float:
+        """Seconds from a sample arriving here to its leaving the speakers."""
+        return self.target / self.bytes_per_s + PACAT_LATENCY_MS / 1000
 
     def set_volume(self, volume: float) -> None:
         self.gain = gain_for(volume)

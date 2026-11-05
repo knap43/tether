@@ -348,7 +348,7 @@ def cmd_set(paths, args):
         value = True
     elif value.lower() in ("off", "false", "no"):
         value = False
-    elif value.isdigit():
+    elif value.removeprefix("-").isdigit():
         value = int(value)
     Ctl(paths).call("set", key=args.key, value=value)
 
@@ -512,7 +512,8 @@ def main(argv=None):
     p.set_defaults(fn=cmd_wol)
 
     p = sub.add_parser("set", help="change a setting: name, clipboard, download_dir, scan_interval, "
-                                   "remote_shell, command_timeout, notifications, media, phone_audio, phone_screen")
+                                   "remote_shell, command_timeout, notifications, media, phone_audio, phone_screen, "
+                                   "screen_sync_ms, phone_play")
     p.add_argument("key")
     p.add_argument("value")
     p.set_defaults(fn=cmd_set)

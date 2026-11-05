@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import aiohttp  # noqa: E402
 
+from tether import phoneplay  # noqa: E402
 from tether.config import Paths  # noqa: E402
 from tether.errors import ProtoError  # noqa: E402
 from tether.node import Node  # noqa: E402
@@ -548,6 +549,59 @@ async def main(root: Path):
         assert e.code == "denied", e
     A.cfg["phone_screen"] = True
     print("ok  phone screen")
+
+    # --- direct play: links are checked, what can't be fetched says so
+    for code, body in (("bad_request", {"t": "play_url", "url": "file:///etc/passwd"}),
+                       ("bad_request", {"t": "play_files", "files": [{"id": "1"}]})):
+        try:
+            await sb.request(body)
+            raise AssertionError(f"accepted {body}")
+        except ProtoError as e:
+            assert e.code == code, e
+    can_play, player = phoneplay.can_play, phoneplay.Player
+    played = []
+
+    class FakePlayer:
+        def __init__(self, targets, title, fullscreen=True):
+            self.targets, self.fullscreen, self.ended = targets, fullscreen, asyncio.Event()
+            played.append(self)
+
+        async def wait_exit(self):
+            await self.ended.wait()
+
+        async def stop(self):
+            self.ended.set()
+
+    async def only_good(url):
+        return "good" in url
+
+    phoneplay.can_play, phoneplay.Player = only_good, FakePlayer
+    try:
+        try:
+            await sb.request({"t": "play_url", "url": "https://kino.example/login"})
+            raise AssertionError("played the unplayable")
+        except ProtoError as e:
+            assert e.code == "not_playable", e
+        assert not played
+        await sb.request({"t": "play_url", "url": "https://good.example/v"})
+        assert played[-1].targets == ["https://good.example/v"] and played[-1].fullscreen
+        ended = []
+        B._h_play_end = lambda s, msg: ended.append(True) or asyncio.sleep(0)
+        await sb.request({"t": "play_files", "files": [{"id": "1", "name": "song.flac", "size": 9, "mime": "audio/flac"}]})
+        assert played[0].ended.is_set(), "the newest player replaces the last"
+        assert not played[-1].fullscreen and played[-1].targets[0].endswith("/1/song.flac")
+        played[-1].ended.set()  # the user closes it
+        await until(lambda: ended and A.player is None, what="phone told the files are done")
+        A.cfg["phone_play"] = False
+        try:
+            await sb.request({"t": "play_url", "url": "https://good.example/v"})
+            raise AssertionError("played while turned off")
+        except ProtoError as e:
+            assert e.code == "denied", e
+        A.cfg["phone_play"] = True
+    finally:
+        phoneplay.can_play, phoneplay.Player = can_play, player
+    print("ok  direct play")
 
     # --- reconnect after drop
     sa.channel.close()

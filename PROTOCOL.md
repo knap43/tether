@@ -267,6 +267,22 @@ stopped, or won't start (consent declined).
 
 The phone's sound, if it comes too, is an ordinary `audio` stream alongside.
 
+### Direct play (phone → desktop)
+
+The phone hands over what it wants played, and the desktop plays the original
+rather than a capture.
+
+`{"t": "play_url", "req": n, "url": "https://…"}` is answered `ok` once playback
+has started, or `not_playable` if nothing playable was found there (the phone
+then falls back to streaming its screen), `denied` while the desktop has this
+off, `unsupported`, or `bad_request`. Only `http` and `https` links are accepted.
+
+`{"t": "play_files", "req": n, "files": [{"id", "name", "size", "mime"}]}` starts
+a playlist of files the phone holds, with the same answers. To read them, the
+desktop sends `{"t": "play_read", "req": n, "id", "offset", "length"}`, answered
+like `fs_read` with `stream`, `size` and `length`, so seeking works.
+`{"t": "play_end"}` (desktop → phone) says the player is finished with them.
+
 ### Wake-on-LAN (desktop → phone)
 
 `{"t": "host_info", "wol": [{"mac", "broadcast", "ip", "ifname", "wired"}]}` is

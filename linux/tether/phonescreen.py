@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
+from collections import deque
 
 from .errors import ProtoError
 
@@ -16,6 +18,8 @@ log = logging.getLogger("tether.screen")
 F_SETPIPE_SZ = 1031
 MAX_BUFFER = 8 * 1024 * 1024  # beyond this the viewer has stalled; it picks up again at the next keyframe
 PIECE = 64 * 1024
+MAX_DELAY = 0.6  # the most the picture is held back to stay with the sound
+MPRIS_SCRIPTS = ("/usr/lib/mpv-mpris/mpris.so", "/etc/mpv/scripts/mpris.so")  # lets the phone's Media screen drive mpv
 DISPLAY_VARS = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
                 "DBUS_SESSION_BUS_ADDRESS")
 
@@ -24,15 +28,23 @@ def available() -> bool:
     return shutil.which("mpv") is not None or shutil.which("ffplay") is not None
 
 
+def mpv_look(title: str, fullscreen: bool = True) -> list[str]:
+    """What every player window has in common: the best scaling the GPU offers, and either the whole screen or a small window."""
+    args = ["--no-config", "--no-terminal", "--profile=high-quality",
+            "--title=" + title.replace("$", "$$")]  # mpv expands ${…} in titles
+    args += ["--fs"] if fullscreen else ["--geometry=480x480", "--auto-window-resize=no"]
+    mpris = next((p for p in MPRIS_SCRIPTS if os.path.exists(p)), None)
+    return args + [f"--script={mpris}"] if mpris else args
+
+
 def viewer_command(title: str) -> list[str]:
     """The viewer to run, reading the stream from its stdin and tuned for delay over smoothness."""
     if shutil.which("mpv"):
-        return ["mpv", "--no-config", "--no-terminal", "--profile=low-latency", "--untimed", "--no-cache",
+        return ["mpv", *mpv_look(title), "--profile=low-latency", "--untimed", "--no-cache",
                 "--no-demuxer-thread", "--demuxer-lavf-format=h264", "--force-window=immediate",
-                "--autofit-larger=90%x90%", "--osc=no", "--keep-open=no",
-                "--title=" + title.replace("$", "$$"), "-"]  # mpv expands ${…} in titles
+                "--osc=no", "--keep-open=no", "-"]
     if shutil.which("ffplay"):
-        return ["ffplay", "-hide_banner", "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay",
+        return ["ffplay", "-hide_banner", "-loglevel", "error", "-fs", "-fflags", "nobuffer", "-flags", "low_delay",
                 "-framedrop", "-probesize", "32768", "-analyzeduration", "100000", "-autoexit",
                 "-window_title", title, "-f", "h264", "-i", "-"]
     raise ProtoError("unsupported", "showing the phone's screen needs mpv or ffplay")
@@ -65,11 +77,14 @@ class ViewerSink:
     """Feeds the stream to a viewer window; closing the window is how the user stops it.
 
     A thread does the blocking writes, because a viewer that falls behind mustn't hold up the
-    connection, which everything else travels over too.
+    connection, which everything else travels over too. It also holds the picture back by
+    sync_delay() seconds, as the sound takes longer to reach the speakers than frames do the screen.
     """
 
     def __init__(self, title: str):
-        self.buf = bytearray()
+        self.pending: deque[tuple[float, bytes]] = deque()
+        self.buffered = 0
+        self.sync_delay = lambda: 0.0
         self.closed = False
         self.dropped = 0
         self.cond = threading.Condition()
@@ -86,23 +101,36 @@ class ViewerSink:
 
     def write(self, data: bytes) -> None:
         with self.cond:
-            if len(self.buf) + len(data) > MAX_BUFFER:
-                self.dropped += len(self.buf)
-                self.buf.clear()
-            self.buf += data
+            if self.buffered + len(data) > MAX_BUFFER:
+                self.dropped += self.buffered
+                self.pending.clear()
+                self.buffered = 0
+            self.pending.append((time.monotonic(), data))
+            self.buffered += len(data)
             self.cond.notify()
+
+    def _delay(self) -> float:
+        try:
+            return min(MAX_DELAY, max(0.0, float(self.sync_delay())))
+        except (TypeError, ValueError):
+            return 0.0
 
     def _run(self) -> None:
         out = self.proc.stdin
         try:
             while True:
                 with self.cond:
-                    while not self.buf and not self.closed:
+                    while not self.pending and not self.closed:
                         self.cond.wait()
                     if self.closed:
                         return
-                    piece = bytes(self.buf[:PIECE])
-                    del self.buf[:PIECE]
+                    arrived, piece = self.pending[0]
+                    wait = arrived + self._delay() - time.monotonic()
+                    if wait > 0:
+                        self.cond.wait(min(wait, 0.05))
+                        continue
+                    self.pending.popleft()
+                    self.buffered -= len(piece)
                 out.write(piece)
                 out.flush()
         except (BrokenPipeError, OSError, ValueError):

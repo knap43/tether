@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tether import phonescreen  # noqa: E402
+from tether import phoneplay, phonescreen  # noqa: E402
 from tether.errors import ProtoError  # noqa: E402
 
 
@@ -78,6 +78,22 @@ async def test_sink():
             assert out.read_bytes() == data
             await sink.close()
             assert sink.proc.poll() is not None
+
+            # The picture waits for the sound.
+            out.unlink()
+            sink = phonescreen.ViewerSink("phone")
+            sink.sync_delay = lambda: 0.4
+            sink.write(b"late")
+            await asyncio.sleep(0.2)
+            assert not out.exists() or out.stat().st_size == 0
+            for _ in range(60):
+                if out.stat().st_size == 4:
+                    break
+                await asyncio.sleep(0.05)
+            assert out.read_bytes() == b"late"
+            sink.sync_delay = lambda: "nonsense"  # a bad setting mustn't stop the picture
+            assert sink._delay() == 0.0
+            await sink.close()
             await asyncio.wait_for(sink.wait_exit(), 1)
 
             # The window closes: wait_exit() says so, and writing afterwards does no harm.
@@ -87,14 +103,69 @@ async def test_sink():
             sink.write(b"x" * 1024)
             sink.write(b"y" * phonescreen.MAX_BUFFER)  # a stalled viewer costs bounded memory
             sink.write(b"z" * phonescreen.MAX_BUFFER)
-            assert len(sink.buf) <= phonescreen.MAX_BUFFER
+            assert sink.buffered <= phonescreen.MAX_BUFFER
             await sink.close()
     finally:
         phonescreen.viewer_command, phonescreen.display_env = command, env
     print("ok  viewer sink")
 
 
+def test_urls():
+    for good in ("https://youtu.be/abc", "http://example.com/a.mp4?x=1"):
+        assert phoneplay.valid_url(good), good
+    for bad in ("file:///etc/passwd", "av://v4l2:/dev/video0", "--script=/tmp/x.lua", "https://", "ftp://a/b",
+                "https://a b/", "https://a/\n--x", None, 7, "https://a/" + "x" * 5000):
+        assert not phoneplay.valid_url(bad), bad
+    if phonescreen.shutil.which("yt-dlp"):
+        assert asyncio.run(phoneplay.can_play("https://youtu.be/abc"))  # answered without asking the web
+    print("ok  link checks")
+
+
+async def test_file_server():
+    from aiohttp import ClientSession
+
+    data = bytes(range(256)) * 400
+
+    class FakeIncoming:
+        def __init__(self, part):
+            self.part, self.done = part, False
+
+        async def chunks(self):
+            yield self.part
+            self.done = True
+
+        def abort(self):
+            self.done = True
+
+    class FakeChannel:
+        reads = []
+
+        async def request(self, msg):
+            FakeChannel.reads.append((msg["offset"], msg["length"]))
+            return {"_in": FakeIncoming(data[msg["offset"] : msg["offset"] + msg["length"]])}
+
+    server = phoneplay.FileServer(FakeChannel())
+    url = (await server.start([{"id": "1", "name": "a b.mkv", "size": len(data), "mime": "video/x-matroska"}]))[0]
+    assert "a%20b.mkv" in url
+    async with ClientSession() as http:
+        async with http.get(url) as r:
+            assert r.status == 200 and await r.read() == data
+        async with http.get(url, headers={"Range": "bytes=100-199"}) as r:
+            assert r.status == 206 and await r.read() == data[100:200]
+            assert r.headers["Content-Range"] == f"bytes 100-199/{len(data)}"
+        async with http.get(url, headers={"Range": "bytes=-10"}) as r:
+            assert r.status == 206 and await r.read() == data[-10:]
+        async with http.get(url, headers={"Range": f"bytes={len(data)}-"}) as r:
+            assert r.status == 416
+        async with http.get(url.replace(server.token, "wrong")) as r:
+            assert r.status == 404  # the address is the secret
+    await server.stop()
+    print("ok  file server")
+
+
 if __name__ == "__main__":
+    test_urls()
+    asyncio.run(test_file_server())
     test_viewer_command()
     test_display_env()
     asyncio.run(test_sink())

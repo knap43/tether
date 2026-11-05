@@ -26,6 +26,7 @@ from .fsops import TMP_PREFIX, Shares
 from .media import Media
 from .sleepwatch import SleepWatch
 from . import phoneaudio
+from . import phoneplay
 from . import phonescreen
 from .transfers import Transfer, Transfers
 from .sync import BaseState, FolderIndex, now_ms, plan, remove_empty_parents, safe_rel, tmp_path_for
@@ -210,6 +211,7 @@ class Node:
         self.audio_sent_volume: float | None = None  # last volume the streaming phone was told
         self.screen_in = None  # (session, Incoming) of the phone screen stream showing here
         self.screen_sink = phonescreen.ViewerSink
+        self.player = None  # what the phone asked us to play: (Player, FileServer or None, session)
         self.tasks: set[asyncio.Task] = set()
         self.sleepwatch = SleepWatch(self.before_sleep, self.after_wake)
         self.asleep: set[str] = set()  # peers that told us they went to sleep, until they're back
@@ -1275,6 +1277,7 @@ class Node:
         if msg.get("codec") != "h264":
             raise ProtoError("bad_request")
         sink = self.screen_sink(f"{s.name} – Tether")
+        sink.sync_delay = self._screen_delay
         if self.screen_in:  # one phone at a time; the newest wins
             old, old_in = self.screen_in
             old_in.abort()
@@ -1299,10 +1302,75 @@ class Node:
                 s.screen = "off"
                 self.emit_status()
 
+    def _screen_delay(self) -> float:
+        """How long to hold the picture back, so that it plays with the phone's sound."""
+        if not self.audio_out:
+            return 0.0
+        return self.audio_out.latency() + self.cfg["screen_sync_ms"] / 1000
+
     async def _watch_viewer(self, sink, inc) -> None:
         """Closing the viewer window stops the stream, and so the capture on the phone."""
         await sink.wait_exit()
         inc.abort()
+
+    # -- direct play (the computer fetches what the phone shares, instead of capturing it) ------
+
+    def _check_play(self) -> None:
+        if not self.cfg["phone_play"]:
+            raise ProtoError("denied", "playing what the phone shares is turned off")
+        if not phoneplay.available():
+            raise ProtoError("unsupported", "needs mpv")
+
+    async def _h_play_url(self, s, msg):
+        self._check_play()
+        url = msg.get("url")
+        if not phoneplay.valid_url(url):
+            raise ProtoError("bad_request")
+        if not await phoneplay.can_play(url):
+            raise ProtoError("not_playable")
+        await self._start_player(s, [url], f"{s.name} – Tether")
+        await s.channel.reply(msg)
+
+    async def _h_play_files(self, s, msg):
+        self._check_play()
+        files = msg.get("files")
+        if not isinstance(files, list) or not 1 <= len(files) <= 500 or not all(
+            isinstance(f, dict) and isinstance(f.get("id"), str) and isinstance(f.get("name"), str)
+            and isinstance(f.get("size"), int) and not isinstance(f.get("size"), bool) and f["size"] > 0
+            for f in files
+        ):
+            raise ProtoError("bad_request")
+        server = phoneplay.FileServer(s.channel)
+        targets = await server.start(files)
+        only_sound = all(str(f.get("mime", "")).startswith("audio/") for f in files)
+        try:
+            await self._start_player(s, targets, f"{s.name} – Tether", server, fullscreen=not only_sound)
+        except Exception:
+            await server.stop()
+            raise
+        await s.channel.reply(msg)
+
+    async def _start_player(self, s, targets, title, server=None, fullscreen=True) -> None:
+        await self._stop_player()  # one at a time; the newest wins
+        player = phoneplay.Player(targets, title, fullscreen)
+        self.player = (player, server, s)
+        self.player_watch = asyncio.ensure_future(self._watch_player(player))
+
+    async def _watch_player(self, player) -> None:
+        await player.wait_exit()
+        if self.player and self.player[0] is player:
+            await self._stop_player()
+
+    async def _stop_player(self) -> None:
+        if not self.player:
+            return
+        player, server, s = self.player
+        self.player = None
+        await player.stop()
+        if server:
+            await server.stop()
+            if not s.channel.closed.is_set():
+                await s.channel.send({"t": "play_end"})
 
     async def _h_screen_state(self, s, msg):
         """The phone reports it stopped (or never started, e.g. the user declined)."""
@@ -1428,6 +1496,8 @@ class Node:
             "phone_audio_available": phoneaudio.available(),
             "phone_screen": self.cfg["phone_screen"],
             "phone_screen_available": phonescreen.available(),
+            "phone_play": self.cfg["phone_play"],
+            "phone_play_available": phoneplay.available(),
         }
 
 

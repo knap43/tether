@@ -409,6 +409,8 @@ class Node(
                     "fs_list" -> ch.reply(msg, "entries" to shares.list(msg.str("path")))
                     "fs_stat" -> ch.reply(msg, "entry" to shares.stat(msg.str("path")))
                     "fs_read" -> onFsRead(ch, msg)
+                    "play_read" -> onPlayRead(ch, msg)
+                    "play_end" -> releasePlayable()
                     "fs_write" -> onFsWrite(ch, msg, inc!!)
                     "fs_mkdir" -> {
                         shares.mkdir(msg.str("path"))

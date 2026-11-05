@@ -352,6 +352,11 @@ class TetherWindow(Adw.ApplicationWindow):
                 "Start it from the phone, or with the screen button by the phone" if st.get("phone_screen_available", True)
                 else "Needs mpv or ffplay, neither of which is installed"
             )
+            self.play_row.set_active(bool(st.get("phone_play", True)))
+            self.play_row.set_subtitle(
+                "Share a link or file to “Play on computer” on the phone" if st.get("phone_play_available", True)
+                else "Needs mpv, which isn't installed"
+            )
             self.media_row.set_subtitle(
                 "Play, pause, skip, seek and volume, from the phone" if st.get("media_available", True)
                 else "Needs playerctl, which isn't installed"
@@ -954,6 +959,10 @@ class TetherWindow(Adw.ApplicationWindow):
         self.screen_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="phone_screen", value=r.get_active()))
         media.add(self.screen_row)
+        self.play_row = Adw.SwitchRow(title="Play what the phone shares")
+        self.play_row.connect("notify::active", lambda r, _p: self._updating or self.call(
+            "set", key="phone_play", value=r.get_active()))
+        media.add(self.play_row)
         page.add(media)
 
         self.wol = ListGroup("Wake on LAN",

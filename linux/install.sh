@@ -23,9 +23,9 @@ command -v pacat >/dev/null || {
     say "Installing pacat (plays the phone's audio)"
     sudo pacman -S --needed libpulse
 }
-command -v mpv >/dev/null || command -v ffplay >/dev/null || {
-    say "Installing mpv (shows the phone's screen)"
-    sudo pacman -S --needed mpv
+{ command -v mpv >/dev/null && command -v yt-dlp >/dev/null && pacman -Q mpv-mpris >/dev/null 2>&1; } || {
+    say "Installing mpv and yt-dlp (play what the phone shares and shows)"
+    sudo pacman -S --needed mpv mpv-mpris yt-dlp
 }
 
 say "Installing daemon to $lib"

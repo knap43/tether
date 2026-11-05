@@ -205,7 +205,7 @@ internal class ScreenStream(
 
     private fun format(w: Int, h: Int) = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
         setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-        setInteger(MediaFormat.KEY_BIT_RATE, maxOf(MIN_BITRATE, w * h * BITS_PER_PIXEL))
+        setInteger(MediaFormat.KEY_BIT_RATE, (w * h * BITS_PER_PIXEL).coerceIn(MIN_BITRATE, MAX_BITRATE))
         setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_SECONDS)
         setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0) // reordering would only add delay
@@ -413,9 +413,10 @@ internal class ScreenStream(
     }
 
     private companion object {
-        val LONG_EDGES = intArrayOf(1920, 1600, 1280, 1024, 800)
+        val LONG_EDGES = intArrayOf(2560, 1920, 1600, 1280, 1024, 800)
         const val MIN_BITRATE = 2_000_000
-        const val BITS_PER_PIXEL = 4
+        const val MAX_BITRATE = 12_000_000
+        const val BITS_PER_PIXEL = 6
         const val FRAME_RATE = 60
         const val KEYFRAME_SECONDS = 2
         const val REPEAT_AFTER_US = 100_000L
