@@ -158,9 +158,11 @@ async def main(root: Path):
     base = f"http://127.0.0.1:{48291 + 1000}/{A.cfg['dav_token']}"
     dev = "B"
     async with aiohttp.ClientSession() as http:
-        r = await http.request("PROPFIND", base + "/", headers={"Depth": "1"})
-        body = await r.text()
-        assert r.status == 207 and f"/{dev}/" in body, body
+        # the top level isn't a folder, so GVfs mounts each device on its own
+        r = await http.request("PROPFIND", base + "/", headers={"Depth": "0"})
+        assert r.status == 404, r.status
+        r = await http.get(base + "/")
+        assert r.status == 200 and f"/{dev}/" in await r.text()
         r = await http.request("PROPFIND", f"{base}/{dev}/", headers={"Depth": "1"})
         body = await r.text()
         assert r.status == 207 and "hello.txt" in body and "<D:collection/>" in body

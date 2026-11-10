@@ -1598,7 +1598,9 @@ class Node:
             "pending": pending,
             "clipboard": self.cfg["clipboard"],
             "clipboard_backend": self.clip.name,
-            "dav_url": f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/Phone/",
+            # The connected phone under its own name, so Files shows it as one mount, not two.
+            "dav_url": next((d["dav_url"] for d in devices if d["type"] == "phone" and d["dav_url"]),
+                            f"dav://127.0.0.1:{self.cfg['dav_port']}/{self.cfg['dav_token']}/Phone/"),
             "dav_root": dav_root,
             "shares": self.cfg["shares"],
             "sync": self.cfg["sync"],

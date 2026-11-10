@@ -192,11 +192,11 @@ class DavServer:
             if request.method in ("GET", "HEAD"):
                 links = "".join(f'<li><a href="{self.href(d)}">{html.escape(d)}</a></li>' for d in self.devices())
                 return web.Response(text=f"<ul>{links}</ul>", content_type="text/html")
-            raise web.HTTPMethodNotAllowed(request.method, ["PROPFIND", "GET", "OPTIONS"])
-        parts = [response_xml(self.href(None), "Tether", True, 0, 0)]
-        if request.headers.get("Depth", "1") != "0":
-            parts += [response_xml(self.href(d), d, True, 0, 0) for d in self.devices()]
-        return multistatus(parts)
+            raise web.HTTPMethodNotAllowed(request.method, ["GET", "OPTIONS"])
+        # Not a WebDAV folder: GVfs climbs to the highest folder above what it mounts and
+        # makes that the mount's root, which its sidebar entry opens. Stopping the climb
+        # here keeps each device its own mount, opening on the device itself.
+        raise web.HTTPNotFound()
 
     # -- methods --------------------------------------------------------------
 
