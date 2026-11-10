@@ -279,11 +279,22 @@ export default class TetherExtension extends Extension {
     browse() {
         if (!this._status)
             return;
-        try {
-            Gio.AppInfo.launch_default_for_uri(this._status.dav_url, null);
-        } catch (e) {
-            Main.notify('Tether', `Could not open ${this._status.dav_url}: ${e.message}`);
-        }
+        // GIO won't open a dav:// location that isn't mounted yet, so mount it first.
+        const uri = this._status.dav_url;
+        const fail = e => Main.notify('Tether', `Could not open ${uri}: ${e.message}`);
+        Gio.File.new_for_uri(uri).mount_enclosing_volume(Gio.MountMountFlags.NONE, null, null, (f, res) => {
+            try {
+                f.mount_enclosing_volume_finish(res);
+            } catch (e) {
+                if (!e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.ALREADY_MOUNTED))
+                    return fail(e);
+            }
+            try {
+                Gio.AppInfo.launch_default_for_uri(uri, null);
+            } catch (e) {
+                fail(e);
+            }
+        });
     }
 
     spawnTether(args) {

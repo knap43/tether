@@ -521,13 +521,13 @@ def main(argv=None):
     p = sub.add_parser("mount", help="open the phone (or another device) in Files")
     p.add_argument("device", nargs="?", help="a paired device's name or id; default: the phone")
     p.add_argument("--bookmark", action="store_true", help="also add it to the Files sidebar")
+    p.add_argument("--no-open", action="store_true")
+    p.set_defaults(fn=cmd_mount)
 
     p = sub.add_parser("sidebar", help="devices shown in the Files sidebar")
     p.add_argument("action", nargs="?", choices=["list", "add", "remove"], default="list")
     p.add_argument("device", nargs="?", help="a paired device's name or id")
     p.set_defaults(fn=cmd_sidebar)
-    p.add_argument("--no-open", action="store_true")
-    p.set_defaults(fn=cmd_mount)
 
     args = ap.parse_args(argv)
     if args.cmd == "share" and args.action == "add" and not args.path:

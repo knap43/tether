@@ -311,6 +311,19 @@ class TetherWindow(Adw.ApplicationWindow):
         except GLib.Error as e:
             self.toast(f"Couldn't open {uri}: {e.message}")
 
+    def open_remote(self, uri: str):
+        """Mounts a dav:// location before opening it: GIO won't open one that isn't mounted."""
+        def mounted(f, res):
+            try:
+                f.mount_enclosing_volume_finish(res)
+            except GLib.Error as e:
+                if not e.matches(Gio.io_error_quark(), Gio.IOErrorEnum.ALREADY_MOUNTED):
+                    self.toast(f"Couldn't open {uri}: {e.message}")
+                    return
+            self.open_uri(uri)
+
+        Gio.File.new_for_uri(uri).mount_enclosing_volume(Gio.MountMountFlags.NONE, None, None, mounted)
+
     def device_name(self, device_id: str) -> str:
         for d in (self.status or {}).get("devices", []):
             if d["id"] == device_id:
@@ -658,7 +671,7 @@ class TetherWindow(Adw.ApplicationWindow):
         if not self.status:
             return
         d = next((d for d in self.status["devices"] if d["id"] == device_id), None)
-        self.open_uri(d["dav_url"] if d and d.get("dav_url") else self.status["dav_url"])
+        self.open_remote(d["dav_url"] if d and d.get("dav_url") else self.status["dav_url"])
 
     # -- folders page -------------------------------------------------------------------
 
