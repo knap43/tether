@@ -1603,6 +1603,8 @@ class Node:
             "shares": self.cfg["shares"],
             "sync": self.cfg["sync"],
             "download_dir": str(self.cfg.download_dir),
+            "movies_dir": str(self._movies_root()),
+            "movies_dir_custom": bool(self.cfg["movies_dir"]),
             "commands": self.cfg["commands"],
             "remote_shell": self.cfg["remote_shell"],
             "command_timeout": self.cfg["command_timeout"],

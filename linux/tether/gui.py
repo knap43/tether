@@ -370,6 +370,9 @@ class TetherWindow(Adw.ApplicationWindow):
                 "Links and files shared to “Play on computer”, and this computer's music, from the phone" if st.get("phone_play_available", True)
                 else "Needs mpv, which isn't installed"
             )
+            movies = st.get("movies_dir", "")
+            self.movies_row.set_subtitle(movies if Path(movies).is_dir() else f"{movies} (not found)")
+            self.movies_reset.set_visible(bool(st.get("movies_dir_custom")))
             self.apps.update({"apps": st.get("notif_apps", []), "muted": st.get("notif_muted", [])}, self._app_rows)
             for t in st.get("transfers", []):
                 self.update_transfer(t)
@@ -772,6 +775,9 @@ class TetherWindow(Adw.ApplicationWindow):
     def change_download_dir(self):
         self.pick_folder("Save Received Files In", lambda p: self.call("set", key="download_dir", value=p))
 
+    def change_movies_dir(self):
+        self.pick_folder("Play Movies From", lambda p: self.call("set", key="movies_dir", value=p))
+
     def add_share(self):
         def then(path):
             base = os.path.basename(path.rstrip("/")) or "Files"
@@ -968,6 +974,14 @@ class TetherWindow(Adw.ApplicationWindow):
         self.play_row.connect("notify::active", lambda r, _p: self._updating or self.call(
             "set", key="phone_play", value=r.get_active()))
         media.add(self.play_row)
+        self.movies_row = Adw.ActionRow(title="Movies folder")
+        self.movies_reset = icon_button("edit-undo-symbolic", "Use ~/Movies, Else Videos", lambda: self.call(
+            "set", ok_toast="Movies folder reset", key="movies_dir", value=""))
+        self.movies_row.add_suffix(self.movies_reset)
+        self.movies_row.add_suffix(icon_button("folder-open-symbolic", "Open Folder",
+                                               lambda: self.open_uri(Path(self.status["movies_dir"]).as_uri())))
+        self.movies_row.add_suffix(text_button("Change…", self.change_movies_dir, "flat"))
+        media.add(self.movies_row)
         self.remote_row = Adw.SwitchRow(title="Let the phone use mouse and keyboard",
                                         subtitle="Its Remote screen: a touchpad and the keys for playing things")
         self.remote_row.connect("notify::active", lambda r, _p: self._updating or self.call(
