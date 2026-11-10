@@ -1,7 +1,8 @@
 """Local WebDAV bridge so Nautilus (GVfs) can browse connected phones.
 
 Listens on 127.0.0.1 only; the URL carries a random token:
-    dav://127.0.0.1:47292/<token>/<device>/<share>/...
+    dav://127.0.0.1:47292/<token>/<device>/<share>/...   a phone sharing a single folder
+                                                 opens straight into it, as below
     dav://127.0.0.1:47292/<token>/Phone/...      the connected phone; when it shares
                                                  a single folder, that folder itself
 """
@@ -116,12 +117,22 @@ class DavServer:
             # Only a phone: on a computer linked to other computers, "Phone" must never
             # quietly open one of them instead.
             s = next((s for s in self.node.connected() if s.type == "phone"), None)
-            if s is None:
-                return None
-            shares = await self.shares(s)
-            return Mount(dev, s, "/" + shares[0] if len(shares) == 1 else "")
-        s = self.devices().get(dev)
-        return Mount(dev, s, "") if s else None
+        else:
+            s = self.devices().get(dev)
+        if s is None:
+            return None
+        if s.type != "phone":
+            return Mount(dev, s, "")
+        # A phone that shares a single folder (its internal storage) opens straight into it.
+        shares = await self.shares(s)
+        return Mount(dev, s, "/" + shares[0] if len(shares) == 1 else "")
+
+    @staticmethod
+    def vpath(m: "Mount", rest: list[str]) -> str:
+        """The phone-side path for the segments after a mount's name."""
+        if m.prefix and m.dev != SHORTCUT and rest and "/" + rest[0] == m.prefix:
+            rest = rest[1:]  # an older link that still names the share, e.g. "realme 10/Internal storage/DCIM"
+        return (m.prefix + "/" + "/".join(rest)).rstrip("/") or "/"
 
     async def shares(self, s) -> list[str]:
         hit = self._shares.get(s.peer_id)
@@ -166,9 +177,7 @@ class DavServer:
                     # Not connected: an empty folder keeps the bookmark mountable.
                     return multistatus([response_xml(self.href(parts[0]), parts[0], True, 0, 0)])
                 raise web.HTTPNotFound()
-            vpath = mnt.prefix + "/" + "/".join(parts[1:])
-            if mnt.prefix:
-                vpath = vpath.rstrip("/")
+            vpath = self.vpath(mnt, parts[1:])
             m = getattr(self, "do_" + request.method.lower(), None)
             if m is None:
                 raise web.HTTPMethodNotAllowed(request.method, ALLOW.split(", "))
@@ -320,7 +329,7 @@ class DavServer:
         m = await self.mount(parts[1]) if len(parts) >= 2 and parts[0] == self.token else None
         if m is None or m.session is not src.session:
             raise web.HTTPBadGateway(text="cross-device moves are not supported")
-        return (m.prefix + "/" + "/".join(parts[2:])).rstrip("/") or "/"
+        return self.vpath(m, parts[2:])
 
     async def do_move(self, request, ch, dev, vpath):
         dst = await self._destination(request, dev)

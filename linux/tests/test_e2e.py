@@ -161,29 +161,33 @@ async def main(root: Path):
         r = await http.request("PROPFIND", base + "/", headers={"Depth": "1"})
         body = await r.text()
         assert r.status == 207 and f"/{dev}/" in body, body
-        r = await http.request("PROPFIND", f"{base}/{dev}/Internal/", headers={"Depth": "1"})
+        r = await http.request("PROPFIND", f"{base}/{dev}/", headers={"Depth": "1"})
         body = await r.text()
         assert r.status == 207 and "hello.txt" in body and "<D:collection/>" in body
-        r = await http.get(f"{base}/{dev}/Internal/hello.txt")
+        # a phone with one share opens straight into it; older links naming the share still work
+        assert f"/{dev}/hello.txt<" in body and "Internal" not in body, body
+        r = await http.get(f"{base}/{dev}/hello.txt")
         assert await r.text() == "hello from phone"
-        r = await http.get(f"{base}/{dev}/Internal/big.bin", headers={"Range": "bytes=1000-1999"})
+        r = await http.get(f"{base}/{dev}/big.bin", headers={"Range": "bytes=1000-1999"})
         data = await r.read()
         assert r.status == 206 and data == (b_share / "big.bin").read_bytes()[1000:2000]
-        r = await http.get(f"{base}/{dev}/Internal/big.bin")
+        r = await http.get(f"{base}/{dev}/big.bin")
         assert await r.read() == (b_share / "big.bin").read_bytes()
-        r = await http.put(f"{base}/{dev}/Internal/sub/new%20file.txt", data=b"x" * 150_000)
+        r = await http.put(f"{base}/{dev}/sub/new%20file.txt", data=b"x" * 150_000)
         assert r.status == 201, r.status
         assert (b_share / "sub" / "new file.txt").read_bytes() == b"x" * 150_000
-        r = await http.request("MKCOL", f"{base}/{dev}/Internal/made")
+        r = await http.request("MKCOL", f"{base}/{dev}/made")
         assert r.status == 201 and (b_share / "made").is_dir()
-        r = await http.request("MOVE", f"{base}/{dev}/Internal/sub/new%20file.txt",
-                               headers={"Destination": f"{base}/{dev}/Internal/made/moved.txt"})
+        r = await http.request("MOVE", f"{base}/{dev}/sub/new%20file.txt",
+                               headers={"Destination": f"{base}/{dev}/made/moved.txt"})
         assert r.status == 201 and (b_share / "made" / "moved.txt").exists()
-        r = await http.request("COPY", f"{base}/{dev}/Internal/made/moved.txt",
-                               headers={"Destination": f"{base}/{dev}/Internal/copy.txt"})
+        r = await http.request("COPY", f"{base}/{dev}/made/moved.txt",
+                               headers={"Destination": f"{base}/{dev}/copy.txt"})
         assert r.status == 201 and (b_share / "copy.txt").read_bytes() == b"x" * 150_000
-        r = await http.delete(f"{base}/{dev}/Internal/made")
+        r = await http.delete(f"{base}/{dev}/made")
         assert r.status == 204 and not (b_share / "made").exists()
+        r = await http.get(f"{base}/{dev}/Internal/hello.txt")
+        assert await r.text() == "hello from phone"
         # the Phone shortcut opens a lone share directly
         r = await http.request("PROPFIND", f"{base}/Phone/", headers={"Depth": "1"})
         body = await r.text()
@@ -201,7 +205,7 @@ async def main(root: Path):
         assert r.status == 201 and (b_share / "sub" / "back.txt").exists()
         r = await http.request("PROPFIND", f"{base}/Phone/sub", headers={"Depth": "1"})
         assert "/Phone/sub/back.txt<" in await r.text()
-        r = await http.get(f"{base}/{dev}/Internal/missing")
+        r = await http.get(f"{base}/{dev}/missing")
         assert r.status == 404
         r = await http.get(f"http://127.0.0.1:{48291 + 1000}/wrongtoken/{dev}/")
         assert r.status == 404
