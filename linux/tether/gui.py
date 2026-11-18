@@ -1015,11 +1015,34 @@ class TetherApp(Adw.Application):
         self.set_accels_for_action("app.quit", ["<Control>q"])
         self.set_accels_for_action("window.close", ["<Control>w"])
 
+    def do_startup(self):
+        Adw.Application.do_startup(self)
+        apply_look(self.paths)
+
     def do_activate(self):
         if self.daemon is None:
             self.daemon = Daemon(self.paths)
         win = self.get_active_window() or TetherWindow(self, self.daemon)
         win.present()
+
+
+SCHEMES = {"light": Adw.ColorScheme.FORCE_LIGHT, "dark": Adw.ColorScheme.FORCE_DARK}
+
+
+def apply_look(paths: Paths) -> None:
+    """Optional restyling, for desktops where libadwaita's look is out of place.
+
+    TETHER_COLOR_SCHEME=light|dark forces the window's colour scheme, and a
+    stylesheet at <config dir>/style.css is loaded above the theme."""
+    scheme = SCHEMES.get(os.environ.get("TETHER_COLOR_SCHEME", "").lower())
+    if scheme is not None:
+        Adw.StyleManager.get_default().set_color_scheme(scheme)
+    css = paths.config_dir / "style.css"
+    display = Gdk.Display.get_default()
+    if css.is_file() and display is not None:
+        provider = Gtk.CssProvider()
+        provider.load_from_path(str(css))
+        Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
 
 class ReplyApp(Adw.Application):

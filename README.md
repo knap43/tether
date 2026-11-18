@@ -148,6 +148,12 @@ adb shell appops set dev.tether SYSTEM_ALERT_WINDOW allow
 
 Then tap **Restart Tether** in the app. Whenever you copy something, Tether briefly flashes an invisible window to read it and send it on.
 
+### The window's look
+
+On desktops where libadwaita's look is out of place, the window can be restyled:
+`TETHER_COLOR_SCHEME=light` (or `dark`) forces its colour scheme, and a stylesheet at
+`~/.config/tether/style.css` is loaded above the theme. Both are optional.
+
 ## Security
 
 - Each device has a P-256 identity key (on the phone it lives in the Android Keystore). Sessions use an ephemeral ECDH handshake, signed by those keys, and AES-256-GCM.
