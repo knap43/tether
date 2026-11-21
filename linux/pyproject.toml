@@ -5,9 +5,6 @@ description = "Android ⇄ Linux file and clipboard bridge"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=41", "aiohttp>=3.9"]
 
-[project.optional-dependencies]
-tui = ["textual>=0.80"]
-
 [project.scripts]
 tether = "tether.cli:main"
 
