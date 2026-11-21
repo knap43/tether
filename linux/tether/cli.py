@@ -396,6 +396,14 @@ def cmd_gui(paths, args):
     sys.exit(gui_main(paths))
 
 
+def cmd_tui(paths, args):
+    try:
+        from .tui import main as tui_main
+    except ImportError:
+        sys.exit("The terminal interface needs Textual: install python-textual (Arch) or `pip install textual`.")
+    sys.exit(tui_main(paths))
+
+
 def cmd_reply(paths, args):
     from .gui import reply_main
 
@@ -436,6 +444,8 @@ def main(argv=None):
 
     p = sub.add_parser("gui", help="open the Tether window")
     p.set_defaults(fn=cmd_gui)
+    p = sub.add_parser("tui", help="open Tether in the terminal")
+    p.set_defaults(fn=cmd_tui)
 
     p = sub.add_parser("reply", help=argparse.SUPPRESS)
     p.add_argument("--device", required=True)

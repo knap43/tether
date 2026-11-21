@@ -44,6 +44,11 @@ On Wayland a newly installed extension takes effect after you log out and back i
 
 The installer also adds **Tether** to the app grid: a GTK window for everything below — pairing, sending files (or dropping them onto a device), shared and synced folders, phone commands, and settings. The top-bar menu opens it too, and `tether gui` from a terminal.
 
+**In a terminal:** `tether tui` does everything the window does, in a text interface (Textual: install
+`python-textual`). Tabs switch with 1–4, a device's actions are behind its *Actions…* button, file and
+folder pickers browse with the arrow keys (Space marks several files), and `q` quits. It follows
+`TETHER_FEATURES` like the window.
+
 ## 2. Build and install the phone app
 
 You need JDK 17 and the Android SDK (platform 35).
