@@ -192,12 +192,17 @@ class TetherWindow(Adw.ApplicationWindow):
         self.transfer_rows: dict[int, tuple] = {}
         self._updating = False
 
+        self.features = shown_features()
+
         self.toasts = Adw.ToastOverlay()
         self.stack = Adw.ViewStack()
         self.stack.add_titled_with_icon(self._devices_page(), "devices", "Devices", "phone-symbolic")
-        self.stack.add_titled_with_icon(self._folders_page(), "folders", "Folders", "folder-symbolic")
-        self.stack.add_titled_with_icon(self._commands_page(), "commands", "Commands", "utilities-terminal-symbolic")
+        folders = self.stack.add_titled_with_icon(self._folders_page(), "folders", "Folders", "folder-symbolic")
+        commands = self.stack.add_titled_with_icon(self._commands_page(), "commands", "Commands",
+                                                   "utilities-terminal-symbolic")
         self.stack.add_titled_with_icon(self._settings_page(), "settings", "Settings", "emblem-system-symbolic")
+        folders.set_visible("files" in self.features)
+        commands.set_visible("commands" in self.features)
         self.toasts.set_child(self.stack)
 
         switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
@@ -396,7 +401,8 @@ class TetherWindow(Adw.ApplicationWindow):
         self.transfers_group = Adw.PreferencesGroup(title="Transfers", visible=False)
         page.add(self.transfers_group)
         self.pending = ListGroup("Pairing")
-        self.paired = ListGroup("Paired devices", "Drop files on a connected device to send them.")
+        self.paired = ListGroup("Paired devices",
+                                "Drop files on a connected device to send them." if "files" in self.features else None)
         self.nearby = ListGroup("Nearby", "Devices running Tether on this network")
         self.nearby.group.set_header_suffix(text_button("Pair by Address…", self.ask_address, "flat"))
         for g in (self.pending, self.paired, self.nearby):
@@ -415,19 +421,26 @@ class TetherWindow(Adw.ApplicationWindow):
                 icon.add_css_class("dim-label")
             row.add_prefix(icon)
             menu = Gio.Menu()
+            files, media = "files" in self.features, "media" in self.features
             if online:
-                row.add_suffix(icon_button("document-send-symbolic", "Send Files…", action="win.send-files", target=d["id"]))
-                row.add_suffix(icon_button("folder-remote-symbolic", "Browse Files", action="win.browse", target=d["id"]))
-                if d.get("type") == "phone" and d.get("audio_ok"):
+                if files:
+                    row.add_suffix(icon_button("document-send-symbolic", "Send Files…", action="win.send-files",
+                                               target=d["id"]))
+                    row.add_suffix(icon_button("folder-remote-symbolic", "Browse Files", action="win.browse",
+                                               target=d["id"]))
+                if media and d.get("type") == "phone" and d.get("audio_ok"):
                     row.add_suffix(self._audio_toggle(d))
-                if d.get("type") == "phone" and d.get("screen_ok"):
+                if media and d.get("type") == "phone" and d.get("screen_ok"):
                     row.add_suffix(self._screen_toggle(d))
-                menu.append("Send Clipboard", f"win.send-clip::{d['id']}")
-                menu.append("Send Notification…", f"win.notify::{d['id']}")
-                self._accept_drops(row, d["id"])
-            if d.get("sidebar"):
+                if "clipboard" in self.features:
+                    menu.append("Send Clipboard", f"win.send-clip::{d['id']}")
+                if "notifications" in self.features:
+                    menu.append("Send Notification…", f"win.notify::{d['id']}")
+                if files:
+                    self._accept_drops(row, d["id"])
+            if files and d.get("sidebar"):
                 menu.append("Remove from Files Sidebar", f"win.sidebar-remove::{d['id']}")
-            else:
+            elif files:
                 menu.append("Show in Files Sidebar", f"win.sidebar-add::{d['id']}")
             menu.append("Unpair…", f"win.unpair::{d['id']}")
             more = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, valign=Gtk.Align.CENTER,
@@ -993,6 +1006,12 @@ class TetherWindow(Adw.ApplicationWindow):
                              "Lets the phone switch this computer on. Also enable “Wake on LAN” in the BIOS/UEFI.")
         page.add(self.wol.group)
 
+        clip.set_visible("clipboard" in self.features)
+        notifs.set_visible("notifications" in self.features)
+        self.apps.group.set_visible("notifications" in self.features)
+        media.set_visible("media" in self.features)
+        self.wol.group.set_visible("wol" in self.features)
+
         service = Adw.PreferencesGroup(title="Background Service")
         self.service_row = Adw.ActionRow(title="Tether service")
         self.service_row.add_suffix(text_button("Restart", lambda: self._systemctl("restart"), "flat"))
@@ -1027,6 +1046,18 @@ class TetherApp(Adw.Application):
 
 
 SCHEMES = {"light": Adw.ColorScheme.FORCE_LIGHT, "dark": Adw.ColorScheme.FORCE_DARK}
+
+# Groups of controls the window can show. TETHER_FEATURES=clipboard,files (any
+# comma-separated subset) shows only those; unset shows everything. It only
+# hides controls: the service still follows its own settings.
+FEATURES = ("clipboard", "files", "notifications", "media", "commands", "wol")
+
+
+def shown_features() -> set[str]:
+    raw = os.environ.get("TETHER_FEATURES", "").strip()
+    if not raw:
+        return set(FEATURES)
+    return {f.strip().lower() for f in raw.split(",")} & set(FEATURES)
 
 
 def apply_look(paths: Paths) -> None:

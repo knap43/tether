@@ -154,6 +154,11 @@ On desktops where libadwaita's look is out of place, the window can be restyled:
 `TETHER_COLOR_SCHEME=light` (or `dark`) forces its colour scheme, and a stylesheet at
 `~/.config/tether/style.css` is loaded above the theme. Both are optional.
 
+`TETHER_FEATURES` limits which controls the window shows, for setups that use only part of Tether:
+a comma-separated list of `clipboard`, `files`, `notifications`, `media`, `commands` and `wol`
+(e.g. `TETHER_FEATURES=clipboard,files`). Unset, everything is shown. It hides controls only; the
+service still follows its own settings.
+
 ## Security
 
 - Each device has a P-256 identity key (on the phone it lives in the Android Keystore). Sessions use an ephemeral ECDH handshake, signed by those keys, and AES-256-GCM.
