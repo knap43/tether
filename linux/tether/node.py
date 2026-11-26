@@ -1364,6 +1364,11 @@ class Node:
         entries = await asyncio.to_thread(music.list_folder, root, msg.get("path", "/"))
         await s.channel.reply(msg, entries=entries, root=root.name)
 
+    async def _h_music_search(self, s, msg):
+        self._check_play()
+        found = await asyncio.to_thread(music.search, self._music_root(), msg.get("query"))
+        await s.channel.reply(msg, entries=found)
+
     async def _h_music_play(self, s, msg):
         self._check_play()
         tracks, start = await asyncio.to_thread(music.make_queue, self._music_root(), msg.get("path"))

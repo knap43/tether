@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import subprocess
+import unicodedata
 from pathlib import Path
 
 from .errors import ProtoError
@@ -14,6 +15,7 @@ log = logging.getLogger("tether.music")
 AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".m4b", ".aac", ".wav", ".wv", ".ape", ".aiff",
               ".aif", ".alac", ".wma", ".mka", ".mpc", ".dsf", ".dff", ".tta"}
 MAX_QUEUE = 5000
+MAX_RESULTS = 200
 
 
 def user_dir(configured: str | None, xdg_key: str, fallback: str) -> Path:
@@ -74,6 +76,65 @@ def list_folder(root: Path, path, keep=_is_track) -> list[dict]:
             except OSError:
                 continue
     return sorted(entries, key=lambda e: (not e["dir"], _order(e["name"])))
+
+
+def _fold(text: str) -> str:
+    """For matching: no case, accents or punctuation, so "the matrix" finds The.Matrix.1999.mkv and "amelie" Amélie."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return re.sub(r"[\W_]+", " ", re.sub(r"['’`]", "", plain.casefold())).strip()
+
+
+def search(root: Path, query) -> list[dict]:
+    """Folders and tracks anywhere in the library whose path holds all the words of the query.
+
+    A folder that matches stands for everything inside it, so an album found by name comes back once,
+    not as every one of its tracks. Folders come first.
+    """
+    if not isinstance(query, str):
+        raise ProtoError("bad_request")
+    words = _fold(query).split()
+    if not words:
+        return []
+    real = resolve(root, "/")
+    folders, tracks = [], []
+    for base, dirs, files in os.walk(real):
+        keep = []
+        for d in dirs:
+            if d.startswith("."):
+                continue
+            full = Path(base, d)
+            rel = full.relative_to(real).as_posix()
+            if not full.resolve().is_relative_to(real):
+                continue
+            if all(w in _fold(rel) for w in words):
+                folders.append(rel)
+            else:
+                keep.append(d)
+        dirs[:] = keep
+        for name in files:
+            full = Path(base, name)
+            if not _is_track(full):
+                continue
+            rel = full.relative_to(real).as_posix()
+            if all(w in _fold(rel) for w in words) and full.resolve().is_relative_to(real):
+                tracks.append(rel)
+        if len(folders) + len(tracks) >= MAX_RESULTS * 4:
+            break
+
+    def order(rel):
+        return _order(rel.rpartition("/")[0]), _order(rel.rpartition("/")[2])
+
+    found = [(rel, True) for rel in sorted(folders, key=order)] + [(rel, False) for rel in sorted(tracks, key=order)]
+    entries = []
+    for rel, is_dir in found[:MAX_RESULTS]:
+        entry = {"name": rel.rsplit("/", 1)[-1], "path": rel, "dir": is_dir}
+        if not is_dir:
+            try:
+                entry["size"] = (real / rel).stat().st_size
+            except OSError:
+                pass
+        entries.append(entry)
+    return entries
 
 
 def make_queue(root: Path, path) -> tuple[list[str], int]:

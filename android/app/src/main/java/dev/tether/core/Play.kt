@@ -66,7 +66,8 @@ internal fun onPlayRead(ch: Channel, msg: JsonObject) {
     ch.replyStream(msg, input, length, "size" to f.size, "length" to length)
 }
 
-data class MusicEntry(val name: String, val dir: Boolean, val size: Long)
+/** A folder or track; [path] is relative to the music folder, and empty in a folder listing, where [name] is enough. */
+data class MusicEntry(val name: String, val dir: Boolean, val size: Long, val path: String = "")
 
 /** What the computer's music player is doing. Positions and lengths are in seconds. */
 data class MusicState(
@@ -82,6 +83,15 @@ data class MusicState(
 )
 
 /** A folder of the computer's music; folders first, then tracks. */
+/** Folders and tracks anywhere in the music folder whose path holds all the words of [query]. */
+fun Node.musicSearch(peerId: String, query: String): List<MusicEntry> {
+    val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
+    val res = s.channel.request(jobj("t" to "music_search", "query" to query))
+    return res.msg.arr("entries").orEmpty().mapNotNull { it as? JsonObject }.map {
+        MusicEntry(it.str("name").orEmpty(), it.bool("dir") == true, it.long("size") ?: 0L, it.str("path").orEmpty())
+    }
+}
+
 fun Node.musicList(peerId: String, path: String): List<MusicEntry> {
     val s = session(peerId) ?: throw RemoteError("not_found", "not connected")
     val res = s.channel.request(jobj("t" to "music_list", "path" to path))

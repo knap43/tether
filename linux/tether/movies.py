@@ -6,12 +6,11 @@ import logging
 import os
 import re
 import time
-import unicodedata
 from pathlib import Path
 
 from .config import atomic_write_json, read_json
 from .errors import ProtoError
-from .music import MAX_QUEUE, _order, list_folder, resolve, user_dir
+from .music import MAX_QUEUE, _fold, _order, list_folder, resolve, user_dir
 
 log = logging.getLogger("tether.movies")
 
@@ -96,12 +95,6 @@ async def follow(player, rels: list[str], progress: "Progress", finish) -> None:
             await asyncio.sleep(SAMPLE_S)
     finally:
         progress.save()
-
-
-def _fold(text: str) -> str:
-    """For matching: no case, accents or punctuation, so "the matrix" finds The.Matrix.1999.mkv and "amelie" Amélie."""
-    plain = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
-    return re.sub(r"[\W_]+", " ", re.sub(r"['’`]", "", plain.casefold())).strip()
 
 
 def search(root: Path, query, progress: "Progress") -> list[dict]:

@@ -54,6 +54,34 @@ def test_folder(root: Path, outside: Path):
     print("ok  music folder")
 
 
+def test_search(base: Path):
+    root, outside = base / "Library", base / "away"
+    for d in (root, outside):
+        d.mkdir()
+    for name in ("The Beatles/Help!/01 Help!.mp3", "The Beatles/Help!/02 Yesterday.flac", "The Beatles/Abbey Road/01 Come Together.mp3",
+                 "Björk/Homogenic/Jóga.ogg", "Mixes/help me.opus", "Mixes/help.txt", ".hidden/Help.mp3"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(b"xx")
+    (outside / "Help Leak.mp3").write_bytes(b"x")
+    (root / "Help Leak.mp3").symlink_to(outside / "Help Leak.mp3")
+    (outside / "Help").mkdir()
+    (root / "Linked").symlink_to(outside / "Help")
+
+    def found(query):
+        return [(e["path"], e["dir"]) for e in music.search(root, query)]
+
+    # A matching folder stands for what's inside it; folders first; nothing hidden, linked out, or not music.
+    assert found("help") == [("The Beatles/Help!", True), ("Mixes/help me.opus", False)], found("help")
+    assert found("beatles") == [("The Beatles", True)]
+    assert found("beatles yesterday") == [("The Beatles/Help!/02 Yesterday.flac", False)]
+    assert found("JOGA bjork") == [("Björk/Homogenic/Jóga.ogg", False)]
+    assert found("come together abbey") == [("The Beatles/Abbey Road/01 Come Together.mp3", False)]
+    assert found("nothing here") == [] and found("  ") == []
+    assert music.search(root, "yesterday")[0]["size"] == 2
+    assert code_of(music.search, root, None) == "bad_request"
+    print("ok  music search")
+
+
 def tone(path: Path, seconds: int, title: str) -> None:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
                     f"sine=frequency=440:duration={seconds}", "-metadata", f"title={title}",
@@ -358,6 +386,7 @@ if __name__ == "__main__":
         root.mkdir()
         outside.mkdir()
         test_folder(root, outside)
+        test_search(Path(d))
         asyncio.run(test_player(outside))
         asyncio.run(test_video_player(outside))
         asyncio.run(test_resume(outside))

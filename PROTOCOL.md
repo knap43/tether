@@ -281,6 +281,7 @@ for started or ended, and is repeated when it reconnects while still playing.
 | request | fields | answer |
 |---|---|---|
 | `music_list` | `path` | `root` (the folder's name), `entries`: `{"name", "dir", "size"}`, folders first, tracks only |
+| `music_search` | `query` | `entries`: up to 200 folders and tracks from the whole folder whose path holds all the query's words, ignoring case, accents and punctuation; folders first, and a matching folder stands for everything inside it. An entry is `{"name", "path", "dir", "size"}`, its `path` relative to the music folder |
 | `music_play` | `path` | a track plays on through its folder; a folder plays everything inside it |
 | `music_state` | — | the state below |
 | `music_cmd` | `action`, `value` | the state below, after the command |
