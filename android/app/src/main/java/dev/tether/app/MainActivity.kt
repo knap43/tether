@@ -9,6 +9,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -221,21 +222,37 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         val until = wakingUntil[id] ?: 0L
         val waking = until > now
-        content.addView(
-            bigButton(if (waking) "Waking $name…" else "Wake up $name", R.drawable.ic_power, enabled = !waking) {
-                wakingUntil[id] = System.currentTimeMillis() + WAKE_MS
-                render()
-                node.pool.execute {
-                    val failed = runCatching { node.wake(id) }.exceptionOrNull()
-                    if (failed != null) {
-                        runOnUiThread {
-                            wakingUntil.remove(id)
-                            render()
-                            snack(failed.message ?: "Couldn't send the wake-up")
-                        }
+        val button = bigButton(if (waking) "Waking $name…" else "Wake up $name", R.drawable.ic_power, enabled = !waking) {
+            wakingUntil[id] = System.currentTimeMillis() + WAKE_MS
+            render()
+            node.pool.execute {
+                val failed = runCatching { node.wake(id) }.exceptionOrNull()
+                if (failed != null) {
+                    runOnUiThread {
+                        wakingUntil.remove(id)
+                        render()
+                        snack(failed.message ?: "Couldn't send the wake-up")
                     }
                 }
-                content.postDelayed({ if (!isFinishing) render() }, WAKE_MS + 100)
+            }
+            content.postDelayed({ if (!isFinishing) render() }, WAKE_MS + 100)
+        }.apply {
+            iconSize = ui.dp(48)
+            iconPadding = ui.dp(12)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setPadding(ui.dp(40), ui.dp(28), ui.dp(40), ui.dp(28))
+        }
+        // Centred at its own size in the empty space, rather than stretched across it.
+        content.addView(
+            FrameLayout(this).apply {
+                addView(
+                    button,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER,
+                    ),
+                )
             },
             fill(),
         )
